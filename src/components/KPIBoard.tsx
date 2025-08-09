@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,34 +21,25 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { createSupabaseBrowser } from "@/lib/supabaseClient";
 
 // ---------- Types ----------
 interface KPI {
-    id: number;
+    id: number | string;
     title: string;
     current: number;
     target: number;
     unit?: string; // e.g. $, %, blank ⇒ absolute count
-    parentId?: number | null; // null ⇒ monthly, otherwise points to monthly parent
+    parentId?: number | string | null; // null ⇒ monthly, otherwise points to monthly parent
 }
 
-// ---------- Helpers ----------
-const loadKpis = (): KPI[] => {
-    try {
-        const stored = localStorage.getItem("kpis");
-        return stored ? JSON.parse(stored) : [];
-    } catch (_) {
-        return [];
-    }
-};
-
-const saveKpis = (kpis: KPI[]) => localStorage.setItem("kpis", JSON.stringify(kpis));
-
-const progressColor = (p: number) => {
-    if (p >= 0.8) return "bg-green-500";
-    if (p >= 0.6) return "bg-yellow-400";
-    if (p >= 0.25) return "bg-orange-400";
-    return "bg-red-500";
+// ---------- Color helpers ----------
+// Use parent class with a child selector to color the inner progress bar in shadcn/ui
+const progressBarClass = (p: number) => {
+    if (p >= 0.8) return "[&>div]:bg-green-500";
+    if (p >= 0.6) return "[&>div]:bg-yellow-400";
+    if (p >= 0.25) return "[&>div]:bg-orange-400";
+    return "[&>div]:bg-red-500";
 };
 
 const textColor = (p: number) => {
@@ -60,7 +51,10 @@ const textColor = (p: number) => {
 
 // ---------- Component ----------
 export default function KPIBoard() {
+    const supabase = useMemo(() => createSupabaseBrowser(), []);
+
     const [kpis, setKpis] = useState<KPI[]>([]);
+    const [loading, setLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [editing, setEditing] = useState<KPI | null>(null);
     const [isWeekly, setIsWeekly] = useState(false);
@@ -72,50 +66,63 @@ export default function KPIBoard() {
         parentId: "",
     });
 
+    // ---------- Data helpers (Supabase) ----------
+    const fetchKpis = async () => {
+        setLoading(true);
+        const [{ data: monthly, error: mErr }, { data: weekly, error: wErr }] = await Promise.all([
+            supabase.from("kpi_monthly").select("id,title,unit,target,current").order("id"),
+            supabase.from("kpi_weekly").select("id,parent_id,title,unit,target,current").order("id"),
+        ]);
+        if (mErr || wErr) {
+            console.error(mErr || wErr);
+            setLoading(false);
+            return;
+        }
+        const mappedMonthly: KPI[] = (monthly ?? []).map((m: any) => ({
+            id: m.id,
+            title: m.title,
+            unit: m.unit ?? "",
+            target: Number(m.target) ?? 0,
+            current: Number(m.current) ?? 0,
+            parentId: null,
+        }));
+        const mappedWeekly: KPI[] = (weekly ?? []).map((w: any) => ({
+            id: w.id,
+            title: w.title,
+            unit: w.unit ?? "",
+            target: Number(w.target) ?? 0,
+            current: Number(w.current) ?? 0,
+            parentId: w.parent_id,
+        }));
+        setKpis([...mappedMonthly, ...mappedWeekly]);
+        setLoading(false);
+    };
+
+    const upsertMonthly = async (payload: { id?: number | string; title: string; unit?: string; target: number; current: number; }) => {
+        const { data, error } = await supabase
+            .from("kpi_monthly")
+            .upsert(payload, { onConflict: "id" })
+            .select()
+            .maybeSingle();
+        if (error) throw error;
+        return data;
+    };
+
+    const upsertWeekly = async (payload: { id?: number | string; parent_id: number; title: string; unit?: string; target: number; current: number; }) => {
+        const { data, error } = await supabase
+            .from("kpi_weekly")
+            .upsert(payload, { onConflict: "id" })
+            .select()
+            .maybeSingle();
+        if (error) throw error;
+        return data;
+    };
+
     // ---------- Lifecycle ----------
     useEffect(() => {
-        const initial = loadKpis();
-        if (!initial.length) {
-            setKpis([
-                {
-                    id: 1,
-                    title: "Monthly Recurring Revenue",
-                    current: 75000,
-                    target: 100000,
-                    unit: "$",
-                    parentId: null,
-                },
-                {
-                    id: 2,
-                    title: "Active Users",
-                    current: 4200,
-                    target: 5000,
-                    unit: "",
-                    parentId: null,
-                },
-                {
-                    id: 3,
-                    title: "Net Promoter Score",
-                    current: 48,
-                    target: 60,
-                    unit: "",
-                    parentId: null,
-                },
-                {
-                    id: 4,
-                    title: "Weekly Sales Calls",
-                    current: 45,
-                    target: 60,
-                    unit: "$",
-                    parentId: 1,
-                },
-            ]);
-        } else {
-            setKpis(initial);
-        }
+        fetchKpis();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
-
-    useEffect(() => saveKpis(kpis), [kpis]);
 
     // ---------- Dialog helpers ----------
     const openNew = (weekly: boolean) => {
@@ -141,35 +148,49 @@ export default function KPIBoard() {
     const monthly = kpis.filter((k) => k.parentId === null || k.parentId === undefined);
     const weekly = kpis.filter((k) => k.parentId !== null && k.parentId !== undefined);
 
-    const save = () => {
+    const save = async () => {
         const { title, current, target, unit, parentId } = form;
         if (!title || !current || !target || (isWeekly && !parentId)) return;
 
-        // ----- Unit consistency for weekly KPIs -----
-        if (isWeekly) {
-            const parent = kpis.find((k) => k.id === Number(parentId));
-            const parentUnit = parent?.unit ?? "";
-            const childUnit = unit || "";
-            if (parentUnit !== childUnit) {
-                alert(
-                    `Unit mismatch: weekly KPI must use the same unit ('${parentUnit || "—"}') as its monthly parent.`
-                );
-                return;
+        try {
+            if (isWeekly) {
+                // Unit consistency check (UI-level; server also enforces via trigger)
+                const parent = monthly.find((m) => String(m.id) === String(parentId));
+                const parentUnit = parent?.unit ?? "";
+                const childUnit = unit || "";
+                if (parentUnit !== childUnit) {
+                    alert(`Unit mismatch: weekly KPI must use the same unit ('${parentUnit || "—"}') as its monthly parent.`);
+                    return;
+                }
+                const payload = {
+                    id: editing ? editing.id : undefined,
+                    parent_id: Number(parentId),
+                    title,
+                    unit: childUnit,
+                    current: Number(current),
+                    target: Number(target),
+                } as any;
+                const inserted = await upsertWeekly(payload);
+                await fetchKpis();
+                setIsDialogOpen(false);
+                return inserted;
+            } else {
+                const payload = {
+                    id: editing ? editing.id : undefined,
+                    title,
+                    unit: unit || "",
+                    current: Number(current),
+                    target: Number(target),
+                } as any;
+                const inserted = await upsertMonthly(payload);
+                await fetchKpis();
+                setIsDialogOpen(false);
+                return inserted;
             }
+        } catch (e) {
+            console.error(e);
+            alert("Saving failed. Check console for details.");
         }
-
-        const parsed: KPI = {
-            id: editing ? editing.id : Date.now(),
-            title,
-            current: Number(current),
-            target: Number(target),
-            unit: unit || undefined,
-            parentId: isWeekly ? Number(parentId) : null,
-        };
-
-        const updated = editing ? kpis.map((k) => (k.id === editing.id ? parsed : k)) : [...kpis, parsed];
-        setKpis(updated);
-        setIsDialogOpen(false);
     };
 
     // ---------- Render ----------
@@ -190,63 +211,58 @@ export default function KPIBoard() {
 
             {/* Monthly section */}
             <h2 className="text-xl font-semibold mb-3">Monthly KPIs</h2>
-            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {monthly.map((kpi) => {
-                    const children = weekly.filter((w) => w.parentId === kpi.id);
-                    const derivedCurrent = children.length
-                        ? children.reduce((sum, c) => sum + c.current, 0)
-                        : kpi.current;
-                    const progress = derivedCurrent / kpi.target;
+            {loading ? (
+                <div className="text-slate-500">Loading…</div>
+            ) : (
+                <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {monthly.map((kpi) => {
+                        const children = weekly.filter((w) => String(w.parentId) === String(kpi.id));
+                        const derivedCurrent = children.length
+                            ? children.reduce((sum, c) => sum + c.current, 0)
+                            : kpi.current;
+                        const progress = derivedCurrent / (kpi.target || 1);
 
-                    return (
-                        <Card key={kpi.id} className="shadow-md">
-                            <CardContent className="p-4 space-y-4">
-                                <div className="flex items-start justify-between">
-                                    <div className="font-semibold leading-snug">{kpi.title}</div>
-                                    <Button variant="ghost" size="icon" onClick={() => openEdit(kpi)}>
-                                        <Edit size={16} />
-                                    </Button>
-                                </div>
-                                <div
-                                    className={`text-2xl font-bold tracking-tight ${textColor(progress)}`}
-                                >
-                                    {kpi.unit}
-                                    {derivedCurrent.toLocaleString()} <span className="text-base font-medium text-slate-500">/ {kpi.unit}{kpi.target.toLocaleString()}</span>
-                                </div>
-                                <Progress
-                                    value={Math.min(progress * 100, 100)}
-                                    className="h-2"
-                                    colorClass={progressColor(progress)}
-                                />
-                                {/* Weekly children */}
-                                {children.length > 0 && (
-                                    <div className="space-y-3 pt-2">
-                                        {children.map((wk) => {
-                                            const wp = wk.current / wk.target;
-                                            return (
-                                                <div key={wk.id} className="pl-2 border-l border-slate-200">
-                                                    <div className="flex items-start justify-between">
-                                                        <span className="text-sm font-medium">{wk.title}</span>
-                                                        <Button variant="ghost" size="icon" onClick={() => openEdit(wk)}>
-                                                            <Edit size={14} />
-                                                        </Button>
-                                                    </div>
-                                                    <div className={`text-sm font-semibold ${textColor(wp)}`}>{wk.unit}{wk.current} / {wk.unit}{wk.target}</div>
-                                                    <Progress
-                                                        value={Math.min(progress * 100, 100)}
-                                                        className="h-1.5"
-                                                        colorClass={progressColor(progress)}
-                                                    />
-                                                </div>
-                                            );
-                                        })}
+                        return (
+                            <Card key={String(kpi.id)} className="shadow-md">
+                                <CardContent className="p-4 space-y-4">
+                                    <div className="flex items-start justify-between">
+                                        <div className="font-semibold leading-snug">{kpi.title}</div>
+                                        <Button variant="ghost" size="icon" onClick={() => openEdit(kpi)}>
+                                            <Edit size={16} />
+                                        </Button>
                                     </div>
-                                )}
-                            </CardContent>
-                        </Card>
-                    );
-                })}
-            </div>
+                                    <div className={`text-2xl font-bold tracking-tight ${textColor(progress)}`}>
+                                        {kpi.unit}
+                                        {derivedCurrent.toLocaleString()} <span className="text-base font-medium text-slate-500">/ {kpi.unit}{kpi.target.toLocaleString()}</span>
+                                    </div>
+                                    <Progress value={Math.min(progress * 100, 100)} className={`h-2 ${progressBarClass(progress)}`} />
+
+                                    {/* Weekly children */}
+                                    {children.length > 0 && (
+                                        <div className="space-y-3 pt-2">
+                                            {children.map((wk) => {
+                                                const wp = wk.current / (wk.target || 1);
+                                                return (
+                                                    <div key={String(wk.id)} className="pl-2 border-l border-slate-200">
+                                                        <div className="flex items-start justify-between">
+                                                            <span className="text-sm font-medium">{wk.title}</span>
+                                                            <Button variant="ghost" size="icon" onClick={() => openEdit(wk)}>
+                                                                <Edit size={14} />
+                                                            </Button>
+                                                        </div>
+                                                        <div className={`text-sm font-semibold ${textColor(wp)}`}>{wk.unit}{wk.current} / {wk.unit}{wk.target}</div>
+                                                        <Progress value={Math.min(wp * 100, 100)} className={`h-1.5 ${progressBarClass(wp)}`} />
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        );
+                    })}
+                </div>
+            )}
 
             {/* Dialog */}
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -261,42 +277,22 @@ export default function KPIBoard() {
                         {/* Title */}
                         <div className="grid grid-cols-4 items-center gap-4">
                             <label className="text-right">Title</label>
-                            <Input
-                                value={form.title}
-                                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                                className="col-span-3"
-                            />
+                            <Input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="col-span-3" />
                         </div>
                         {/* Current */}
                         <div className="grid grid-cols-4 items-center gap-4">
                             <label className="text-right">Current</label>
-                            <Input
-                                type="number"
-                                value={form.current}
-                                onChange={(e) => setForm({ ...form, current: e.target.value })}
-                                className="col-span-3"
-                            />
+                            <Input type="number" value={form.current} onChange={(e) => setForm({ ...form, current: e.target.value })} className="col-span-3" />
                         </div>
                         {/* Target */}
                         <div className="grid grid-cols-4 items-center gap-4">
                             <label className="text-right">Target</label>
-                            <Input
-                                type="number"
-                                value={form.target}
-                                onChange={(e) => setForm({ ...form, target: e.target.value })}
-                                className="col-span-3"
-                            />
+                            <Input type="number" value={form.target} onChange={(e) => setForm({ ...form, target: e.target.value })} className="col-span-3" />
                         </div>
                         {/* Unit */}
                         <div className="grid grid-cols-4 items-center gap-4">
                             <label className="text-right">Unit</label>
-                            <Input
-                                value={form.unit}
-                                onChange={(e) => setForm({ ...form, unit: e.target.value })}
-                                className="col-span-3"
-                                disabled={isWeekly}
-                                placeholder="$, %, blank…"
-                            />
+                            <Input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="col-span-3" disabled={isWeekly} placeholder="$, %, blank…" />
                         </div>
                         {/* Parent selector for weekly */}
                         {isWeekly && (
@@ -316,7 +312,7 @@ export default function KPIBoard() {
                                     </SelectTrigger>
                                     <SelectContent>
                                         {monthly.map((m) => (
-                                            <SelectItem key={m.id} value={String(m.id)}>
+                                            <SelectItem key={String(m.id)} value={String(m.id)}>
                                                 {m.title}
                                             </SelectItem>
                                         ))}
