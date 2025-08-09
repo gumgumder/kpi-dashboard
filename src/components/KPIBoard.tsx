@@ -13,6 +13,17 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Plus, Edit } from "lucide-react";
 import {
     Select,
@@ -90,6 +101,7 @@ export default function KPIBoard() {
     const [kpis, setKpis] = useState<KPI[]>([]);
     const [loading, setLoading] = useState(true);
     const [isDialogOpen, setIsDialogOpen] = useState(false);
+    const [confirmOpen, setConfirmOpen] = useState(false);
     const [editing, setEditing] = useState<KPI | null>(null);
     const [isWeekly, setIsWeekly] = useState(false);
     const [form, setForm] = useState({
@@ -101,6 +113,16 @@ export default function KPIBoard() {
     });
 
     // ---------- Data helpers (Supabase) ----------
+    const deleteMonthly = async (id: number | string) => {
+        const { error } = await supabase.from("kpi_monthly").delete().eq("id", Number(id));
+        if (error) throw error;
+    };
+
+    const deleteWeekly = async (id: number | string) => {
+        const { error } = await supabase.from("kpi_weekly").delete().eq("id", Number(id));
+        if (error) throw error;
+    };
+
     const fetchKpis = async () => {
         setLoading(true);
         const [{ data: monthly, error: mErr }, { data: weekly, error: wErr }] = await Promise.all([
@@ -230,6 +252,23 @@ export default function KPIBoard() {
     };
 
     // ---------- Render ----------
+    const confirmDelete = async () => {
+        if (!editing) return;
+        try {
+            if (editing.parentId !== null && editing.parentId !== undefined) {
+                await deleteWeekly(editing.id);
+            } else {
+                await deleteMonthly(editing.id);
+            }
+            setConfirmOpen(false);
+            setIsDialogOpen(false);
+            await fetchKpis();
+        } catch (e) {
+            console.error(e);
+            alert("Delete failed. Check console for details.");
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gradient-to-tr from-slate-50 to-slate-100 p-6">
             {/* Header */}
@@ -357,7 +396,26 @@ export default function KPIBoard() {
                             </div>
                         )}
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="flex items-center gap-2">
+                        {editing && (
+                            <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+                                <AlertDialogTrigger asChild>
+                                    <Button variant="destructive" className="mr-auto">Delete</Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                        <AlertDialogTitle>Delete this KPI?</AlertDialogTitle>
+                                        <AlertDialogDescription>
+                                            {`“${editing?.title}” will be permanently deleted${editing?.parentId ? " (weekly)" : " (monthly and its weekly children)"}. This action cannot be undone.`}
+                                        </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                        <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+                                    </AlertDialogFooter>
+                                </AlertDialogContent>
+                            </AlertDialog>
+                        )}
                         <Button onClick={save}>{editing ? "Save" : "Add"}</Button>
                     </DialogFooter>
                 </DialogContent>
