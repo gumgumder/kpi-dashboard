@@ -13,6 +13,14 @@ import {
     DialogTrigger,
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
+import { Plus, Edit } from "lucide-react";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import {
     AlertDialog,
     AlertDialogAction,
@@ -24,14 +32,6 @@ import {
     AlertDialogTitle,
     AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { Plus, Edit } from "lucide-react";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
 import { createSupabaseBrowser } from "@/lib/supabaseClient";
 
 // ---------- Types ----------
@@ -42,6 +42,7 @@ interface KPI {
     target: number;
     unit?: string; // e.g. $, %, blank ⇒ absolute count
     parentId?: number | string | null; // null ⇒ monthly, otherwise points to monthly parent
+    period?: string; // YYYY-MM for monthly KPIs
 }
 
 // DB row types (no `any`)
@@ -51,6 +52,7 @@ interface MonthlyRow {
     unit: string | null;
     target: number | string;
     current: number | string;
+    period?: string | null; // may not exist if column missing
 }
 interface WeeklyRow {
     id: number | string;
@@ -68,6 +70,7 @@ interface MonthlyUpsert {
     unit?: string;
     target: number;
     current: number;
+    period?: string; // optional; sent only if column exists
 }
 interface WeeklyUpsert {
     id?: number | string;
@@ -79,7 +82,6 @@ interface WeeklyUpsert {
 }
 
 // ---------- Color helpers ----------
-// Use parent class with a child selector to color the inner progress bar in shadcn/ui
 const progressBarClass = (p: number) => {
     if (p >= 0.8) return "[&>div]:bg-green-500";
     if (p >= 0.6) return "[&>div]:bg-yellow-400";
@@ -94,6 +96,13 @@ const textColor = (p: number) => {
     return "text-red-600";
 };
 
+const formatPeriodLabel = (period?: string) => {
+    if (!period) return "";
+    const [y, m] = period.split("-");
+    const d = new Date(Number(y), Number(m) - 1, 1);
+    return d.toLocaleString(undefined, { month: "long", year: "numeric" });
+};
+
 // ---------- Component ----------
 export default function KPIBoard() {
     const supabase = useMemo(() => createSupabaseBrowser(), []);
@@ -104,39 +113,62 @@ export default function KPIBoard() {
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [editing, setEditing] = useState<KPI | null>(null);
     const [isWeekly, setIsWeekly] = useState(false);
+    const [hasPeriod, setHasPeriod] = useState(true); // detect if DB column exists
     const [form, setForm] = useState({
         title: "",
         current: "",
         target: "",
         unit: "",
         parentId: "",
+        period: "",
     });
 
     // ---------- Data helpers (Supabase) ----------
-    const deleteMonthly = async (id: number | string) => {
-        const { error } = await supabase.from("kpi_monthly").delete().eq("id", Number(id));
-        if (error) throw error;
-    };
-
-    const deleteWeekly = async (id: number | string) => {
-        const { error } = await supabase.from("kpi_weekly").delete().eq("id", Number(id));
-        if (error) throw error;
-    };
-
     const fetchKpis = async () => {
         setLoading(true);
-        const [{ data: monthly, error: mErr }, { data: weekly, error: wErr }] = await Promise.all([
-            supabase.from("kpi_monthly").select("id,title,unit,target,current").order("id"),
-            supabase.from("kpi_weekly").select("id,parent_id,title,unit,target,current").order("id"),
-        ]);
-        if (mErr || wErr) {
-            console.error(mErr || wErr);
+
+        // Try selecting with period; fallback if column missing
+        let monthlyRows: MonthlyRow[] = [];
+        let weeklyRows: WeeklyRow[] = [];
+
+        const { data: monthlyWithPeriod, error: mErr } = await supabase
+            .from("kpi_monthly")
+            .select("id,title,unit,target,current,period")
+            .order("id");
+
+        const mCode = (mErr as { code?: string; message?: string } | null)?.code;
+        if (mErr && mCode === "42703") {
+            // column does not exist
+            const { data: monthlyNoPeriod, error: mErr2 } = await supabase
+                .from("kpi_monthly")
+                .select("id,title,unit,target,current")
+                .order("id");
+            if (mErr2) {
+                console.error(mErr2);
+                setLoading(false);
+                return;
+            }
+            monthlyRows = (monthlyNoPeriod ?? []) as unknown as MonthlyRow[];
+            setHasPeriod(false);
+        } else if (mErr) {
+            console.error(mErr);
+            setLoading(false);
+            return;
+        } else {
+            monthlyRows = (monthlyWithPeriod ?? []) as unknown as MonthlyRow[];
+            setHasPeriod(true);
+        }
+
+        const { data: weekly, error: wErr } = await supabase
+            .from("kpi_weekly")
+            .select("id,parent_id,title,unit,target,current")
+            .order("id");
+        if (wErr) {
+            console.error(wErr);
             setLoading(false);
             return;
         }
-
-        const monthlyRows: MonthlyRow[] = (monthly ?? []) as unknown as MonthlyRow[];
-        const weeklyRows: WeeklyRow[] = (weekly ?? []) as unknown as WeeklyRow[];
+        weeklyRows = (weekly ?? []) as unknown as WeeklyRow[];
 
         const mappedMonthly: KPI[] = monthlyRows.map((m) => ({
             id: m.id,
@@ -145,6 +177,7 @@ export default function KPIBoard() {
             target: Number(m.target) ?? 0,
             current: Number(m.current) ?? 0,
             parentId: null,
+            period: m.period ?? undefined,
         }));
         const mappedWeekly: KPI[] = weeklyRows.map((w) => ({
             id: w.id,
@@ -178,6 +211,16 @@ export default function KPIBoard() {
         return data as WeeklyRow | null;
     };
 
+    const deleteMonthly = async (id: number | string) => {
+        const { error } = await supabase.from("kpi_monthly").delete().eq("id", Number(id));
+        if (error) throw error;
+    };
+
+    const deleteWeekly = async (id: number | string) => {
+        const { error } = await supabase.from("kpi_weekly").delete().eq("id", Number(id));
+        if (error) throw error;
+    };
+
     // ---------- Lifecycle ----------
     useEffect(() => {
         fetchKpis();
@@ -188,7 +231,7 @@ export default function KPIBoard() {
     const openNew = (weekly: boolean) => {
         setEditing(null);
         setIsWeekly(weekly);
-        setForm({ title: "", current: "", target: "", unit: "", parentId: "" });
+        setForm({ title: "", current: "", target: "", unit: "", parentId: "", period: "" });
         setIsDialogOpen(true);
     };
 
@@ -201,6 +244,7 @@ export default function KPIBoard() {
             target: String(kpi.target),
             unit: kpi.unit ?? "",
             parentId: kpi.parentId ? String(kpi.parentId) : "",
+            period: kpi.period ?? "",
         });
         setIsDialogOpen(true);
     };
@@ -209,7 +253,7 @@ export default function KPIBoard() {
     const weekly = kpis.filter((k) => k.parentId !== null && k.parentId !== undefined);
 
     const save = async () => {
-        const { title, current, target, unit, parentId } = form;
+        const { title, current, target, unit, parentId, period } = form;
         if (!title || !current || !target || (isWeekly && !parentId)) return;
 
         try {
@@ -241,6 +285,7 @@ export default function KPIBoard() {
                     current: Number(current),
                     target: Number(target),
                 };
+                if (hasPeriod) payload.period = period || "";
                 await upsertMonthly(payload);
                 await fetchKpis();
                 setIsDialogOpen(false);
@@ -251,7 +296,6 @@ export default function KPIBoard() {
         }
     };
 
-    // ---------- Render ----------
     const confirmDelete = async () => {
         if (!editing) return;
         try {
@@ -269,6 +313,7 @@ export default function KPIBoard() {
         }
     };
 
+    // ---------- Render ----------
     return (
         <div className="min-h-screen bg-gradient-to-tr from-slate-50 to-slate-100 p-6">
             {/* Header */}
@@ -299,9 +344,18 @@ export default function KPIBoard() {
 
                         return (
                             <Card key={String(kpi.id)} className="shadow-md">
-                                <CardContent className="p-4 space-y-4">
+                                <CardContent className="px-4 pb-4 pt-2 space-y-4">
                                     <div className="flex items-start justify-between">
-                                        <div className="font-semibold leading-snug">{kpi.title}</div>
+                                        <div className="font-semibold leading-snug">
+                                            {kpi.period && (
+                                                <div className="mt-0 mb-2">
+                          <span className="inline-block rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium px-2 py-0.5 border border-indigo-100">
+                            {formatPeriodLabel(kpi.period)}
+                          </span>
+                                                </div>
+                                            )}
+                                            <div>{kpi.title}</div>
+                                        </div>
                                         <Button variant="ghost" size="icon" onClick={() => openEdit(kpi)}>
                                             <Edit size={16} />
                                         </Button>
@@ -369,6 +423,18 @@ export default function KPIBoard() {
                             <label className="text-right">Unit</label>
                             <Input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} className="col-span-3" disabled={isWeekly} placeholder="$, %, blank…" />
                         </div>
+                        {/* Month (monthly only) */}
+                        {!isWeekly && hasPeriod && (
+                            <div className="grid grid-cols-4 items-center gap-4">
+                                <label className="text-right">Month</label>
+                                <Input type="month" value={form.period} onChange={(e) => setForm({ ...form, period: e.target.value })} className="col-span-3" />
+                            </div>
+                        )}
+                        {(!isWeekly && !hasPeriod) && (
+                            <div className="col-span-4 text-xs text-slate-500 px-1">
+                                To enable month tagging, add a <code>period</code> column to <code>kpi_monthly</code> (SQL provided in docs) and redeploy.
+                            </div>
+                        )}
                         {/* Parent selector for weekly */}
                         {isWeekly && (
                             <div className="grid grid-cols-4 items-center gap-4">
