@@ -33,6 +33,40 @@ interface KPI {
     parentId?: number | string | null; // null ⇒ monthly, otherwise points to monthly parent
 }
 
+// DB row types (no `any`)
+interface MonthlyRow {
+    id: number | string;
+    title: string;
+    unit: string | null;
+    target: number | string;
+    current: number | string;
+}
+interface WeeklyRow {
+    id: number | string;
+    parent_id: number | string;
+    title: string;
+    unit: string | null;
+    target: number | string;
+    current: number | string;
+}
+
+// Upsert payloads
+interface MonthlyUpsert {
+    id?: number | string;
+    title: string;
+    unit?: string;
+    target: number;
+    current: number;
+}
+interface WeeklyUpsert {
+    id?: number | string;
+    parent_id: number;
+    title: string;
+    unit?: string;
+    target: number;
+    current: number;
+}
+
 // ---------- Color helpers ----------
 // Use parent class with a child selector to color the inner progress bar in shadcn/ui
 const progressBarClass = (p: number) => {
@@ -78,7 +112,11 @@ export default function KPIBoard() {
             setLoading(false);
             return;
         }
-        const mappedMonthly: KPI[] = (monthly ?? []).map((m: any) => ({
+
+        const monthlyRows: MonthlyRow[] = (monthly ?? []) as unknown as MonthlyRow[];
+        const weeklyRows: WeeklyRow[] = (weekly ?? []) as unknown as WeeklyRow[];
+
+        const mappedMonthly: KPI[] = monthlyRows.map((m) => ({
             id: m.id,
             title: m.title,
             unit: m.unit ?? "",
@@ -86,7 +124,7 @@ export default function KPIBoard() {
             current: Number(m.current) ?? 0,
             parentId: null,
         }));
-        const mappedWeekly: KPI[] = (weekly ?? []).map((w: any) => ({
+        const mappedWeekly: KPI[] = weeklyRows.map((w) => ({
             id: w.id,
             title: w.title,
             unit: w.unit ?? "",
@@ -98,24 +136,24 @@ export default function KPIBoard() {
         setLoading(false);
     };
 
-    const upsertMonthly = async (payload: { id?: number | string; title: string; unit?: string; target: number; current: number; }) => {
+    const upsertMonthly = async (payload: MonthlyUpsert) => {
         const { data, error } = await supabase
             .from("kpi_monthly")
             .upsert(payload, { onConflict: "id" })
             .select()
             .maybeSingle();
         if (error) throw error;
-        return data;
+        return data as MonthlyRow | null;
     };
 
-    const upsertWeekly = async (payload: { id?: number | string; parent_id: number; title: string; unit?: string; target: number; current: number; }) => {
+    const upsertWeekly = async (payload: WeeklyUpsert) => {
         const { data, error } = await supabase
             .from("kpi_weekly")
             .upsert(payload, { onConflict: "id" })
             .select()
             .maybeSingle();
         if (error) throw error;
-        return data;
+        return data as WeeklyRow | null;
     };
 
     // ---------- Lifecycle ----------
@@ -162,32 +200,30 @@ export default function KPIBoard() {
                     alert(`Unit mismatch: weekly KPI must use the same unit ('${parentUnit || "—"}') as its monthly parent.`);
                     return;
                 }
-                const payload = {
+                const payload: WeeklyUpsert = {
                     id: editing ? editing.id : undefined,
                     parent_id: Number(parentId),
                     title,
                     unit: childUnit,
                     current: Number(current),
                     target: Number(target),
-                } as any;
-                const inserted = await upsertWeekly(payload);
+                };
+                await upsertWeekly(payload);
                 await fetchKpis();
                 setIsDialogOpen(false);
-                return inserted;
             } else {
-                const payload = {
+                const payload: MonthlyUpsert = {
                     id: editing ? editing.id : undefined,
                     title,
                     unit: unit || "",
                     current: Number(current),
                     target: Number(target),
-                } as any;
-                const inserted = await upsertMonthly(payload);
+                };
+                await upsertMonthly(payload);
                 await fetchKpis();
                 setIsDialogOpen(false);
-                return inserted;
             }
-        } catch (e) {
+        } catch (e: unknown) {
             console.error(e);
             alert("Saving failed. Check console for details.");
         }
