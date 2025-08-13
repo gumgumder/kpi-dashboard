@@ -289,9 +289,7 @@ export default function KPIBoard() {
 
     // ---------- Lifecycle ----------
     useEffect(() => {
-        fetchKpis();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        fetchKpis();  }, []);
 
     // ---------- Dialog helpers ----------
     const openNew = (weekly: boolean) => {
@@ -514,9 +512,7 @@ export default function KPIBoard() {
         };
 
         useEffect(() => {
-            load();
-            // eslint-disable-next-line react-hooks/exhaustive-deps
-        }, []);
+            load();    }, []);
 
         const totalShown = stats ? ALLOWED_STATUSES.reduce((acc, s) => acc + (stats.byStatus?.[s] ?? 0), 0) : 0;
         const totalExclScheduled = stats ? ALLOWED_STATUSES.filter((s) => s !== 'Scheduled').reduce((acc, s) => acc + (stats.byStatus?.[s] ?? 0), 0) : 0;
