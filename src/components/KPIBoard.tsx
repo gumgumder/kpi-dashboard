@@ -512,7 +512,23 @@ export default function KPIBoard() {
         };
 
         useEffect(() => {
-            load();    }, []);
+            load();
+        }, []);
+
+        // Preload saved goal date from server on mount
+        useEffect(() => {
+            (async () => {
+                try {
+                    const res = await fetch('/api/app-settings/goal-date');
+                    if (res.ok) {
+                        const { value } = await res.json();
+                        if (value) setGoalDate(value);
+                    }
+                } catch (err) {
+                    console.warn('Could not preload goal date', err);
+                }
+            })();
+        }, []);
 
         const totalShown = stats ? ALLOWED_STATUSES.reduce((acc, s) => acc + (stats.byStatus?.[s] ?? 0), 0) : 0;
         const totalExclScheduled = stats ? ALLOWED_STATUSES.filter((s) => s !== 'Scheduled').reduce((acc, s) => acc + (stats.byStatus?.[s] ?? 0), 0) : 0;
