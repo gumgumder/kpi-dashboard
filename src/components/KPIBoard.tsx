@@ -570,8 +570,8 @@ export default function KPIBoard() {
                             <Card>
                                 <CardContent className="p-4">
                                     <div className="text-slate-500 text-sm">Totals</div>
-                                    <div className="text-sm">All statuses: <span className="font-semibold">{stats ? totalShown : (loading ? '…' : 0)}</span></div>
-                                    <div className="text-sm">Excl. Scheduled: <span className="font-semibold">{stats ? totalExclScheduled : (loading ? '…' : 0)}</span></div>
+                                    <div className="text-sm">Sum pipeline: <span className="font-semibold">{stats ? totalShown : (loading ? '…' : 0)}</span></div>
+                                    <div className="text-sm">To be finished: <span className="font-semibold">{stats ? totalExclScheduled : (loading ? '…' : 0)}</span></div>
                                     <div className="text-sm">To be scripted: <span className="font-semibold">{Math.max(0, daysUntil(goalDate) - (stats ? totalShown : 0))}</span></div>
                                 </CardContent>
                             </Card>
