@@ -35,6 +35,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { createSupabaseBrowser } from "@/lib/supabaseClient";
 
+// Module cache for Notion stats (persists until refresh)
+let NOTION_STATS_CACHE: unknown | null = null;
+
 // ---------- Types ----------
 interface KPI {
     id: number | string;
@@ -105,7 +108,7 @@ const formatPeriodLabel = (period?: string) => {
     if (!period) return "";
     const [y, m] = period.split("-");
     const d = new Date(Number(y), Number(m) - 1, 1);
-    return d.toLocaleString(undefined, { month: "long", year: "numeric" });
+    return d.toLocaleString('en-GB', { month: "long", year: "numeric" });
 };
 
 // ---------- Dev self-tests (run only in dev) ----------
@@ -378,6 +381,19 @@ export default function KPIBoard() {
     };
 
     // ---------- Duplicate ----------
+    const incrementWeekly = async (id: number | string, currentVal: number) => {
+        try {
+            const { error } = await supabase
+                .from('kpi_weekly')
+                .update({ current: currentVal + 1 })
+                .eq('id', Number(id));
+            if (error) throw error;
+            await fetchKpis();
+        } catch (e) {
+            console.error(e);
+            alert('Increment failed.');
+        }
+    };
     const duplicateEditing = async () => {
         if (!editing) return;
         try {
@@ -486,7 +502,7 @@ export default function KPIBoard() {
         const formatGoal = (iso: string) => {
             if (!iso) return '—';
             const d = new Date(`${iso}T00:00:00Z`);
-            return d.toLocaleDateString(undefined, { timeZone: TZ, year: 'numeric', month: 'long', day: 'numeric' });
+            return d.toLocaleDateString('en-GB', { timeZone: TZ, year: 'numeric', month: 'long', day: 'numeric' });
         };
 
         const load = async () => {
@@ -503,7 +519,8 @@ export default function KPIBoard() {
                 }
                 const sum = Object.values(json.byStatus || {}).reduce((a, b) => a + b, 0);
                 if (json.total !== sum) console.warn('Notion stats mismatch: total vs sum(byStatus)', { total: json.total, sum });
-                setStats({ ...json, itemsByStatus: filled });
+                NOTION_STATS_CACHE = { ...json, itemsByStatus: filled } as VideoStats;
+                setStats(NOTION_STATS_CACHE as VideoStats);
             } catch (e) {
                 setError(e instanceof Error ? e.message : 'Failed to load stats');
             } finally {
@@ -512,7 +529,11 @@ export default function KPIBoard() {
         };
 
         useEffect(() => {
-            load();
+            if (NOTION_STATS_CACHE) {
+                setStats(NOTION_STATS_CACHE as VideoStats);
+            } else {
+                load();
+            }
         }, []);
 
         // Preload saved goal date from server on mount
@@ -618,7 +639,7 @@ export default function KPIBoard() {
                     <TabsTrigger value="videos">Short Videos</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="kpis">
+                <TabsContent value="kpis" className="data-[state=inactive]:hidden">
                     {/* Header */}
                     <header className="flex items-center justify-between mb-6">
                         <h1 className="text-3xl font-bold">📊 KPI Board</h1>
@@ -678,9 +699,12 @@ export default function KPIBoard() {
                                                             <div key={String(wk.id)} className="pl-2 border-l border-slate-200">
                                                                 <div className="flex items-start justify-between">
                                                                     <span className="text-sm font-medium">{wk.title}</span>
-                                                                    <Button variant="ghost" size="icon" onClick={() => openEdit(wk)}>
-                                                                        <Edit size={14} />
-                                                                    </Button>
+                                                                    <div className="flex items-center gap-1">
+                                                                        <Button variant="outline" className="h-6 w-6 px-0 text-xs" onClick={() => incrementWeekly(wk.id, wk.current)}>+1</Button>
+                                                                        <Button variant="ghost" size="icon" onClick={() => openEdit(wk)}>
+                                                                            <Edit size={14} />
+                                                                        </Button>
+                                                                    </div>
                                                                 </div>
                                                                 <div className={`text-sm font-semibold ${textColor(wp)}`}>{wk.unit}{wk.current} / {wk.unit}{wk.target}</div>
                                                                 <Progress value={Math.min(wp * 100, 100)} className={`h-1.5 ${progressBarClass(wp)}`} />
@@ -794,7 +818,7 @@ export default function KPIBoard() {
                     </Dialog>
                 </TabsContent>
 
-                <TabsContent value="videos">
+                <TabsContent value="videos" className="data-[state=inactive]:hidden">
                     {/** Notion-powered dashboard */}
                     <ShortVideosSection />
                 </TabsContent>
