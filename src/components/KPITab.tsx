@@ -47,12 +47,14 @@ type WeeklyInsert = Omit<WeeklyUpsert,'id'>;
 
 // ---- UI helpers ----
 const progressBarClass = (p: number) => {
+    if (p >= 1.0) return '[&>div]:bg-green-700';
     if (p >= 0.8) return '[&>div]:bg-green-500';
     if (p >= 0.6) return '[&>div]:bg-yellow-400';
     if (p >= 0.25) return '[&>div]:bg-orange-400';
     return '[&>div]:bg-red-500';
 };
 const textColor = (p: number) => {
+    if (p >= 1.0) return 'text-green-700';
     if (p >= 0.8) return 'text-green-600';
     if (p >= 0.6) return 'text-yellow-600';
     if (p >= 0.25) return 'text-orange-600';
