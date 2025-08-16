@@ -120,3 +120,11 @@
     @apply bg-background text-foreground;
   }
 }
+
+.kpi-glow {
+  background-color: #fffdfa;
+  border: 2px solid #ffd700;
+  border-radius: 0.35rem;
+  padding: 0.25rem;
+  box-sizing: border-box;
+}

@@ -696,7 +696,8 @@ export default function KPIBoard() {
                                                     {children.map((wk) => {
                                                         const wp = wk.current / (wk.target || 1);
                                                         return (
-                                                            <div key={String(wk.id)} className="pl-2 border-l border-slate-200">
+                                                            <div key={String(wk.id)} className="pl-2 border-l border-slate-200"
+                                                                 className={`pl-2 border-l border-slate-200 ${wp >= 1 ? "kpi-glow" : ""}`}>
                                                                 <div className="flex items-start justify-between">
                                                                     <span className="text-sm font-medium">{wk.title}</span>
                                                                     <div className="flex items-center gap-1">
