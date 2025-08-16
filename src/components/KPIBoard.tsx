@@ -696,9 +696,7 @@ export default function KPIBoard() {
                                                     {children.map((wk) => {
                                                         const wp = wk.current / (wk.target || 1);
                                                         return (
-                                                            <div key={String(wk.id)} className="pl-2 border-l border-slate-200"
-                                                                 className={`pl-2 border-l border-slate-200 ${wp >= 1 ? "kpi-glow" : ""}`}>
-                                                                <div className="flex items-start justify-between">
+                                                            <div key={String(wk.id)} className={`pl-2 border-l border-slate-200 ${wp >= 1 ? "kpi-glow" : ""}`}>                                                                <div className="flex items-start justify-between">
                                                                     <span className="text-sm font-medium">{wk.title}</span>
                                                                     <div className="flex items-center gap-1">
                                                                         <Button variant="outline" className="h-6 w-6 px-0 text-xs" onClick={() => incrementWeekly(wk.id, wk.current)}>+1</Button>
