@@ -289,7 +289,7 @@ export default function KPITab() {
                                                 return (
                                                     <div
                                                         key={String(wk.id)}
-                                                        className={`pl-2 border-l border-slate-200${wp === 1 ? ' kpi-glow' : ''}`}>
+                                                        className={`pl-2 border-l border-slate-200${wp >= 1 ? ' kpi-glow' : ''}`}>
                                                         <div className="flex items-start justify-between">
                                                             <span className="text-sm font-medium">{wk.title}</span>
                                                             <div className="flex items-center gap-1">
