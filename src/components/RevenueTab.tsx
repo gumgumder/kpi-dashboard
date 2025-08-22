@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar } from 'recharts';
+import { Legend } from 'recharts';
 
 type ValuesResponse = { range: string; values: string[][] };
 type ChartPoint = { name: string; Umsatz: number };
@@ -57,20 +58,36 @@ export default function RevenueTab() {
         totalMRRSigned: 0,
       };
     }
-    const [hdr, ...rest] = values; // ["2025","Umsatz","Retainer p.M"]
 
+    const MONTHS = [
+      'Jänner','Februar','März','April','Mai','Juni',
+      'Juli','August','September','Oktober','November','Dezember'
+    ];
+
+    const [hdr, ...rest] = values;
+
+    // Parse rows from sheet
     const parsed = rest.map((r) => ({
-      month: r[0] ?? '',
+      month: (r[0] ?? '').trim(),
       revenue: toInt(r[1]),
       retainer: toInt(r[2]),
+    }));
+
+    // Index by month for quick lookup
+    const revenueByMonth = Object.fromEntries(parsed.map(p => [p.month, p.revenue]));
+
+    // Build chart for all 12 months (zero if missing)
+    const chart: ChartPoint[] = MONTHS.map((m) => ({
+      name: m,
+      Umsatz: revenueByMonth[m] ?? 0,
     }));
 
     return {
       headers: hdr,
       rows: rest,
-      chartData: parsed.map<ChartPoint>((d) => ({ name: d.month, Umsatz: d.revenue })),
-      totalRevenue: parsed.reduce((a, b) => a + b.revenue, 0),   // €4,808 with your sample
-      totalMRRSigned: parsed.reduce((a, b) => a + b.retainer, 0) // €128 p.M
+      chartData: chart,
+      totalRevenue: parsed.reduce((a, b) => a + b.revenue, 0),
+      totalMRRSigned: parsed.reduce((a, b) => a + b.retainer, 0),
     };
   }, [values]);
 
@@ -132,9 +149,19 @@ export default function RevenueTab() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
-                  <YAxis />
-                  <Tooltip formatter={tooltipFormatter} />
+                  <XAxis
+                      dataKey="name"
+                      interval={0}           // show every month
+                      minTickGap={0}         // don't auto-hide
+                      angle={-45}            // rotate to fit
+                      textAnchor="end"       // align with -45°
+                      height={70}            // extra room for labels
+                      tickMargin={6}
+                      tick={{ fontSize: 15 }}// smaller font
+                  />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip formatter={(v: number) => fmtEUR(v)} />
+                  <Legend verticalAlign="top" height={28} />  {/* shows “Umsatz”, not months */}
                   <Bar dataKey="Umsatz" />
                 </BarChart>
               </ResponsiveContainer>
