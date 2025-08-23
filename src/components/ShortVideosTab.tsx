@@ -17,6 +17,7 @@ type VideoStats = {
 };
 
 const ALLOWED_STATUSES = [
+    'Copywriting',
     'Internal Review',
     'Ready for Filming',
     'Filmed',
@@ -27,6 +28,7 @@ const ALLOWED_STATUSES = [
 type Status = typeof ALLOWED_STATUSES[number];
 
 const STATUS_STYLES: Record<Status, string> = {
+    'Copywriting': 'bg-blue-50 border-blue-200',
     'Internal Review': 'bg-blue-50 border-blue-200',
     'Ready for Filming': 'bg-yellow-50 border-yellow-200',
     Filmed: 'bg-green-50 border-green-200',
@@ -117,9 +119,18 @@ export default function ShortVideosTab() {
         ? ALLOWED_STATUSES.reduce((acc, s) => acc + (stats.byStatus?.[s] ?? 0), 0)
         : 0;
     const totalExclScheduled = stats
-        ? ALLOWED_STATUSES.filter(s => s !== 'Scheduled')
-            .reduce((acc, s) => acc + (stats.byStatus?.[s] ?? 0), 0)
+        ? Math.max(0, daysUntil(goalDate) - (stats.byStatus?.['Scheduled'] ?? 0))
         : 0;
+
+    // below totalExclScheduled computations:
+    const c = (s: Status) => stats?.byStatus?.[s] ?? 0;
+
+    const toWrite  = Math.max(0, totalExclScheduled - (c('Internal Review') + c('Ready for Filming') + c('Filmed') + c('Editing-Jakob') + c('Editing')));
+    const toReview = Math.max(0, totalExclScheduled - (c('Ready for Filming') + c('Filmed') + c('Editing-Jakob') + c('Editing')));
+    const toFilm   = Math.max(0, totalExclScheduled - (c('Filmed') + c('Editing-Jakob') + c('Editing')));
+    const toEdit   = Math.max(0, totalExclScheduled); // shared box for Filmed + Editing-Jakob + Editing
+    const done     = c('Scheduled');
+
 
     return (
         <div className="space-y-4">
@@ -178,6 +189,44 @@ export default function ShortVideosTab() {
                 {Math.max(0, daysUntil(goalDate) - (stats ? totalShown : 0))}
               </span></div>
                         </CardContent></Card>
+                    </div>
+
+                    {/* ---- NEW: phase rollups row ---- */}
+                    <div className="grid gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7">
+                        <Card className="shadow-sm h-22">
+                            <CardContent className="h-full flex flex-col justify-center">
+                                <div className="text-sm font-medium">To write</div>
+                                <div className="text-2xl font-bold">{toWrite}</div>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="shadow-sm h-22">
+                            <CardContent className="h-full flex flex-col justify-center">
+                                <div className="text-sm font-medium">To review</div>
+                                <div className="text-2xl font-bold">{toReview}</div>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="shadow-sm h-22">
+                            <CardContent className="h-full flex flex-col justify-center">
+                                <div className="text-sm font-medium">To film</div>
+                                <div className="text-2xl font-bold">{toFilm}</div>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="col-start-4 col-span-3 shadow-sm h-22">
+                            <CardContent className="h-full flex flex-col justify-center">
+                                <div className="text-sm font-medium">To edit</div>
+                                <div className="text-2xl font-bold">{toEdit}</div>
+                            </CardContent>
+                        </Card>
+
+                        <Card className="shadow-sm h-22">
+                            <CardContent className="h-full flex flex-col justify-center">
+                                <div className="text-sm font-medium">Done</div>
+                                <div className="text-2xl font-bold">{done}</div>
+                            </CardContent>
+                        </Card>
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7">
