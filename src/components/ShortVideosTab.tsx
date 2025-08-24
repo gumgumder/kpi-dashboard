@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import {useEffect, useState} from 'react';
+import {Card, CardContent} from '@/components/ui/card';
+import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
 
 // ---- module cache (persists until hard reload) ----
 let NOTION_STATS_CACHE: VideoStats | null = null;
@@ -46,10 +46,18 @@ const filmartBadgeClass = (v?: string) => {
     return 'bg-slate-100 text-slate-700 border-slate-200'; // fallback
 };
 
+// desired Filmart order: Solos first, Builds last (edit as needed)
+const FILMART_RANK: Record<string, number> = {
+    'J - Solo': 0,
+    'J-Solo-(noBG)': 1,
+    'J- Build': 2,
+};
+const filmartRank = (v?: string) => (v && FILMART_RANK[v.trim()] !== undefined ? FILMART_RANK[v.trim()] : 99);
+
 const TZ = 'Europe/Vienna';
 
 function viennaTodayUTC(): Date {
-    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
+    const parts = new Intl.DateTimeFormat('en-CA', {timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit'})
         .formatToParts(new Date());
     const y = Number(parts.find(p => p.type === 'year')?.value);
     const m = Number(parts.find(p => p.type === 'month')?.value);
@@ -75,7 +83,7 @@ const formatGoal = (iso: string): string => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return '—';
     const [y, m, d] = iso.split('-').map(Number);
     const dt = new Date(Date.UTC(y, m - 1, d));
-    return dt.toLocaleDateString('en-GB', { timeZone: TZ, year: 'numeric', month: 'long', day: 'numeric' });
+    return dt.toLocaleDateString('en-GB', {timeZone: TZ, year: 'numeric', month: 'long', day: 'numeric'});
 };
 
 
@@ -87,14 +95,17 @@ export default function ShortVideosTab() {
     const [goalDate, setGoalDate] = useState<string>(endOfCurrentMonthISO());
 
     const load = async () => {
-        setLoading(true); setError(null);
+        setLoading(true);
+        setError(null);
         try {
             const res = await fetch('/api');
             if (!res.ok) throw new Error(await res.text());
             const json = (await res.json()) as VideoStats;
             // normalize
-            const filled: Record<string, string[]> = { ...(json.itemsByStatus || {}) };
-            Object.keys(json.byStatus || {}).forEach(k => { if (!filled[k]) filled[k] = []; });
+            const filled: Record<string, string[]> = {...(json.itemsByStatus || {})};
+            Object.keys(json.byStatus || {}).forEach(k => {
+                if (!filled[k]) filled[k] = [];
+            });
             const next = {
                 ...json,
                 itemsByStatus: filled,
@@ -121,10 +132,11 @@ export default function ShortVideosTab() {
             try {
                 const res = await fetch('/api/app-settings/goal-date');
                 if (res.ok) {
-                    const { value } = await res.json();
+                    const {value} = await res.json();
                     if (value) setGoalDate(value);
                 }
-            } catch {/* noop */}
+            } catch {/* noop */
+            }
         })();
     }, []);
 
@@ -138,11 +150,11 @@ export default function ShortVideosTab() {
     // below totalExclScheduled computations:
     const c = (s: Status) => stats?.byStatus?.[s] ?? 0;
 
-    const toWrite  = Math.max(0, totalExclScheduled - (c('Internal Review') + c('Ready for Filming') + c('Filmed') + c('Editing-Jakob') + c('Editing')));
+    const toWrite = Math.max(0, totalExclScheduled - (c('Internal Review') + c('Ready for Filming') + c('Filmed') + c('Editing-Jakob') + c('Editing')));
     const toReview = Math.max(0, totalExclScheduled - (c('Ready for Filming') + c('Filmed') + c('Editing-Jakob') + c('Editing')));
-    const toFilm   = Math.max(0, totalExclScheduled - (c('Filmed') + c('Editing-Jakob') + c('Editing')));
-    const toEdit   = Math.max(0, totalExclScheduled); // shared box for Filmed + Editing-Jakob + Editing
-    const done     = c('Scheduled');
+    const toFilm = Math.max(0, totalExclScheduled - (c('Filmed') + c('Editing-Jakob') + c('Editing')));
+    const toEdit = Math.max(0, totalExclScheduled); // shared box for Filmed + Editing-Jakob + Editing
+    const done = c('Scheduled');
 
 
     return (
@@ -158,8 +170,8 @@ export default function ShortVideosTab() {
                             setGoalDate(v);
                             try {
                                 await fetch('/api/app-settings/goal-date', {
-                                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ value: v }),
+                                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({value: v}),
                                 });
                             } catch (err) {
                                 // keep silent in UI
@@ -178,7 +190,8 @@ export default function ShortVideosTab() {
                 <Card><CardContent className="p-4 text-sm text-red-600">
                     {error}
                     <div className="text-slate-600 mt-2">
-                        Check <code>src/app/api/route.ts</code> (Notion) and <code>src/app/api/app-settings/goal-date/route.ts</code>.
+                        Check <code>src/app/api/route.ts</code> (Notion)
+                        and <code>src/app/api/app-settings/goal-date/route.ts</code>.
                     </div>
                 </CardContent></Card>
             )}
@@ -196,8 +209,11 @@ export default function ShortVideosTab() {
 
                         <Card><CardContent className="p-4">
                             <div className="text-slate-500 text-sm">Totals</div>
-                            <div className="text-sm">All statuses: <span className="font-semibold">{stats ? totalShown : (loading ? '…' : 0)}</span></div>
-                            <div className="text-sm">Excl. Scheduled: <span className="font-semibold">{stats ? totalExclScheduled : (loading ? '…' : 0)}</span></div>
+                            <div className="text-sm">All statuses: <span
+                                className="font-semibold">{stats ? totalShown : (loading ? '…' : 0)}</span></div>
+                            <div className="text-sm">Excl. Scheduled: <span
+                                className="font-semibold">{stats ? totalExclScheduled : (loading ? '…' : 0)}</span>
+                            </div>
                             <div className="text-sm">To be scripted: <span className="font-semibold">
                 {Math.max(0, daysUntil(goalDate) - (stats ? totalShown : 0))}
               </span></div>
@@ -253,26 +269,37 @@ export default function ShortVideosTab() {
                                     <div className="max-h-48 overflow-auto pr-1">
                                         {(stats?.itemsByStatus?.[status] || []).length ? (
                                             <ul className="space-y-1">
-                                                {stats!.itemsByStatus[status].map((id) => {
-                                                    const filmart = stats?.filmartById?.[id];
-                                                    return (
-                                                        <li
-                                                            key={id}
-                                                            className="text-xs rounded bg-slate-50 border border-slate-200 px-2 py-1"
-                                                        >
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="flex-1 truncate">{id}</div>
-                                                                {filmart ? (
-                                                                    <span
-                                                                        className={`shrink-0 inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-tight ${filmartBadgeClass(filmart)}`}
-                                                                        title={filmart}
-                                                                    >{filmart}</span>
-                                                                ) : null}
-                                                            </div>
-                                                        </li>
-                                                    );
-                                                })}
+                                                {stats!.itemsByStatus[status]
+                                                    .slice()
+                                                    .sort((a, b) => {
+                                                        const fa = stats?.filmartById?.[a];
+                                                        const fb = stats?.filmartById?.[b];
+                                                        const ra = filmartRank(fa);
+                                                        const rb = filmartRank(fb);
+                                                        if (ra !== rb) return ra - rb;                      // Filmart group order
+                                                        // within same Filmart → sort by numeric ID if possible
+                                                        const na = Number(a), nb = Number(b);
+                                                        if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+                                                        return a.localeCompare(b, undefined, { numeric: true });
+                                                    })
+                                                    .map((id) => {
+                                                        const filmart = stats?.filmartById?.[id];
+                                                        return (
+                                                            <li key={id} className="text-xs rounded bg-slate-50 border border-slate-200 px-2 py-1">
+                                                                <div className="flex items-center gap-2">
+                                                                    <div className="flex-1 truncate">{id}</div>
+                                                                    {filmart ? (
+                                                                        <span
+                                                                            className={`shrink-0 inline-flex items-center rounded border px-1.5 py-0 text-[10px] leading-tight ${filmartBadgeClass(filmart)}`}
+                                                                            title={filmart}
+                                                                        >{filmart}</span>
+                                                                    ) : null}
+                                                                </div>
+                                                            </li>
+                                                        );
+                                                    })}
                                             </ul>
+
                                         ) : (
                                             <div className="text-xs text-slate-500">No items.</div>
                                         )}
