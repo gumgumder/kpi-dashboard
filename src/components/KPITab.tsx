@@ -68,11 +68,19 @@ const formatPeriodLabel = (period?: string) => {
     return d.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
 };
 
+const currentYM = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+};
+
 export default function KPITab() {
     const supabase = useMemo(() => createSupabaseBrowser(), []);
     const [kpis, setKpis] = useState<KPI[]>([]);
     const [loading, setLoading] = useState(true);
-
+    const [availablePeriods, setAvailablePeriods] = useState<string[]>([]);
+    const [selectedPeriod, setSelectedPeriod] = useState<string>('');
     const [isDialogOpen, setIsDialogOpen] = useState(false);
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [editing, setEditing] = useState<KPI | null>(null);
@@ -118,6 +126,22 @@ export default function KPITab() {
             id: w.id, title: w.title, unit: w.unit ?? '', target: Number(w.target) ?? 0,
             current: Number(w.current) ?? 0, parentId: w.parent_id,
         }));
+
+        // collect periods (only if column exists)
+        if (hasPeriod) {
+            const uniq = Array.from(
+                new Set((monthlyRows ?? []).map(r => r.period).filter(Boolean) as string[])
+            ).sort(); // lexicographic works for YYYY-MM
+            setAvailablePeriods(uniq);
+
+            // keep previous selection if still valid, else choose latest, else fallback to current month
+            setSelectedPeriod(prev => {
+                if (prev && uniq.includes(prev)) return prev;
+                if (uniq.length) return uniq[uniq.length - 1];
+                return currentYM();
+            });
+        }
+
         setKpis([...mappedMonthly, ...mappedWeekly]);
         setLoading(false);
     };
@@ -157,7 +181,10 @@ export default function KPITab() {
     // ---- Dialog helpers ----
     const openNew = (weekly: boolean) => {
         setEditing(null); setIsWeekly(weekly);
-        setForm({ title: '', current: '', target: '', unit: '', parentId: '', period: '' });
+        setForm({
+            title: '', current: '', target: '', unit: '', parentId: '',
+            period: (!weekly && hasPeriod) ? (selectedPeriod || currentYM()) : ''
+        });
         setIsDialogOpen(true);
     };
     const openEdit = (kpi: KPI) => {
@@ -169,12 +196,20 @@ export default function KPITab() {
         setIsDialogOpen(true);
     };
 
-    const monthly = kpis.filter(k => k.parentId === null || k.parentId === undefined);
+    const allMonthly = kpis.filter(k => k.parentId === null || k.parentId === undefined);
+    const monthly = hasPeriod
+        ? allMonthly.filter(m => m.period === selectedPeriod)
+        : allMonthly;
     const weekly = kpis.filter(k => k.parentId !== null && k.parentId !== undefined);
 
     const save = async () => {
         const { title, current, target, unit, parentId, period } = form;
         if (!title || !current || !target || (isWeekly && !parentId)) return;
+        if (!isWeekly && hasPeriod && !period) {
+            alert('Please select a month.');
+            return;
+        }
+
         try {
             if (isWeekly) {
                 const parent = monthly.find(m => String(m.id) === String(parentId));
@@ -186,9 +221,13 @@ export default function KPITab() {
                 });
             } else {
                 const payload: MonthlyUpsert = {
-                    id: editing?.id, title, unit: unit || '', current: Number(current), target: Number(target),
+                    id: editing?.id,
+                    title,
+                    unit: unit || '',
+                    current: Number(current),
+                    target: Number(target),
+                    ...(hasPeriod ? { period } : {})
                 };
-                if (hasPeriod) payload.period = period || '';
                 await upsertMonthly(payload);
             }
             await fetchKpis(); setIsDialogOpen(false);
@@ -242,6 +281,24 @@ export default function KPITab() {
     return (
         <div className="space-y-4">
             <header className="flex items-center justify-between">
+                {hasPeriod && (
+                    <div className="flex items-center gap-3">
+                        <span className="text-sm text-slate-600">Showing period:</span>
+                        <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
+                            <SelectTrigger className="w-[220px]">
+                                <SelectValue placeholder="Select month" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {availablePeriods.map(p => (
+                                    <SelectItem key={p} value={p}>{formatPeriodLabel(p)}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                        <div className="text-xs text-slate-500">
+                            {formatPeriodLabel(selectedPeriod)}
+                        </div>
+                    </div>
+                )}
                 <h2 className="text-xl font-semibold">Monthly KPIs</h2>
                 <div className="flex gap-2">
                     <Button onClick={() => openNew(false)} className="gap-2"><Plus size={18}/>Monthly KPI</Button>
