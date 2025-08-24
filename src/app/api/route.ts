@@ -23,6 +23,7 @@ interface NotionPage {
     properties?: {
         Status?: NotionStatusProp
         ID?: NotionIDProp
+        Filmart?: { select?: { name?: string | null } | null }
     }
 }
 
@@ -50,6 +51,11 @@ function getCustomId(page: NotionPage): string {
     return page.id
 }
 
+function getFilmartName(page: NotionPage): string | null {
+    const sel = page.properties?.Filmart?.select?.name
+    return (sel && sel.trim()) ? sel : null
+}
+
 export async function GET(req: NextRequest) {
     // Optional mock: /api?mock=1
     const url = new URL(req.url)
@@ -68,6 +74,7 @@ export async function GET(req: NextRequest) {
 
     const byStatus: ByStatus = {}
     const itemsByStatus: ItemsByStatus = {}
+    const filmartById: Record<string, string> = {}
     let lastEdited = 0
     let cursor: string | undefined
 
@@ -95,6 +102,9 @@ export async function GET(req: NextRequest) {
             if (!itemsByStatus[status]) itemsByStatus[status] = []
             itemsByStatus[status].push(itemId)
 
+            const filmart = getFilmartName(page)
+            if (filmart) filmartById[itemId] = filmart
+
             const ts = Date.parse(page.last_edited_time ?? page.created_time ?? '')
             if (!Number.isNaN(ts)) lastEdited = Math.max(lastEdited, ts)
         }
@@ -107,6 +117,7 @@ export async function GET(req: NextRequest) {
         total,
         byStatus,
         itemsByStatus,
+        filmartById,
         lastUpdated: lastEdited ? new Date(lastEdited).toISOString() : null,
     })
 }

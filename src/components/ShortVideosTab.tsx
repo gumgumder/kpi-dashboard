@@ -13,6 +13,7 @@ type VideoStats = {
     total: number;
     byStatus: Record<string, number>;
     itemsByStatus: Record<string, string[]>;
+    filmartById?: Record<string, string>;
     lastUpdated?: string | null;
 };
 
@@ -35,6 +36,14 @@ const STATUS_STYLES: Record<Status, string> = {
     'Editing-Jakob': 'bg-amber-50 border-amber-200',
     Editing: 'bg-red-50 border-red-200',
     Scheduled: 'bg-blue-50 border-blue-200',
+};
+
+const filmartBadgeClass = (v?: string) => {
+    const val = (v || '').trim();
+    if (val === 'J - Solo') return 'bg-green-100 text-green-800 border-green-200';
+    if (val === 'J - Build') return 'bg-red-100 text-red-800 border-red-200';
+    if (val === 'J-Solo-(noBG)') return 'bg-blue-100 text-blue-800 border-blue-200';
+    return 'bg-slate-100 text-slate-700 border-slate-200'; // fallback
 };
 
 const TZ = 'Europe/Vienna';
@@ -86,7 +95,11 @@ export default function ShortVideosTab() {
             // normalize
             const filled: Record<string, string[]> = { ...(json.itemsByStatus || {}) };
             Object.keys(json.byStatus || {}).forEach(k => { if (!filled[k]) filled[k] = []; });
-            const next = { ...json, itemsByStatus: filled };
+            const next = {
+                ...json,
+                itemsByStatus: filled,
+                filmartById: json.filmartById || {},
+            };
             NOTION_STATS_CACHE = next;
             setStats(next);
         } catch (e: unknown) {
@@ -240,11 +253,26 @@ export default function ShortVideosTab() {
                                     <div className="max-h-48 overflow-auto pr-1">
                                         {(stats?.itemsByStatus?.[status] || []).length ? (
                                             <ul className="space-y-1">
-                                                {stats!.itemsByStatus[status].map((id) => (
-                                                    <li key={id} className="text-xs rounded bg-slate-50 border border-slate-200 px-2 py-1 truncate">
-                                                        {id}
-                                                    </li>
-                                                ))}
+                                                {stats!.itemsByStatus[status].map((id) => {
+                                                    const filmart = stats?.filmartById?.[id];
+                                                    return (
+                                                        <li
+                                                            key={id}
+                                                            className="text-xs rounded bg-slate-50 border border-slate-200 px-2 py-1"
+                                                        >
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="flex-1 truncate">{id}</div>
+                                                                {filmart ? (
+                                                                    <span
+                                                                        className={`shrink-0 inline-flex items-center rounded border px-2 py-0.5 ${filmartBadgeClass(filmart)}`} title={filmart}
+                                                                    >
+                                                                        {filmart}
+                                                                    </span>
+                                                                ) : null}
+                                                            </div>
+                                                        </li>
+                                                    );
+                                                })}
                                             </ul>
                                         ) : (
                                             <div className="text-xs text-slate-500">No items.</div>
