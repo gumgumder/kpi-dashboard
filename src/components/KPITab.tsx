@@ -1,22 +1,22 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import {useEffect, useMemo, useState} from 'react';
+import {Card, CardContent} from '@/components/ui/card';
+import {Button} from '@/components/ui/button';
+import {Input} from '@/components/ui/input';
 import {
     Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Progress } from '@/components/ui/progress';
+import {Progress} from '@/components/ui/progress';
 import {
     AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
     AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { Plus, Edit } from 'lucide-react';
-import { createSupabaseBrowser } from '@/lib/supabaseClient';
+import {Plus, Edit} from 'lucide-react';
+import {createSupabaseBrowser} from '@/lib/supabaseClient';
 
 // ---- Types ----
 interface KPI {
@@ -28,22 +28,46 @@ interface KPI {
     parentId?: number | string | null;
     period?: string; // YYYY-MM for monthly KPIs
 }
+
 interface MonthlyRow {
-    id: number | string; title: string; unit: string | null;
-    target: number | string; current: number | string; period?: string | null;
+    id: number | string;
+    title: string;
+    unit: string | null;
+    target: number | string;
+    current: number | string;
+    period?: string | null;
 }
+
 interface WeeklyRow {
-    id: number | string; parent_id: number | string; title: string;
-    unit: string | null; target: number | string; current: number | string;
+    id: number | string;
+    parent_id: number | string;
+    title: string;
+    unit: string | null;
+    target: number | string;
+    current: number | string;
 }
+
 interface MonthlyUpsert {
-    id?: number | string; title: string; unit?: string; target: number; current: number; period?: string;
+    id?: number | string;
+    title: string;
+    unit?: string;
+    target: number;
+    current: number;
+    period?: string;
 }
-type MonthlyInsert = Omit<MonthlyUpsert,'id'>;
+
+type MonthlyInsert = Omit<MonthlyUpsert, 'id'>;
+
 interface WeeklyUpsert {
-    id?: number | string; parent_id: number; title: string; unit?: string; target: number; current: number;
+    id?: number | string;
+    parent_id: number;
+    title: string;
+    unit?: string;
+    target: number;
+    current: number;
 }
-type WeeklyInsert = Omit<WeeklyUpsert,'id'>;
+
+type WeeklyInsert = Omit<WeeklyUpsert, 'id'>;
 
 // ---- UI helpers ----
 const progressBarClass = (p: number) => {
@@ -65,7 +89,7 @@ const formatPeriodLabel = (period?: string) => {
     const [y, m] = period.split('-');
     const d = new Date(Number(y), Number(m) - 1, 1);
     // stable between server/client
-    return d.toLocaleString('en-GB', { month: 'long', year: 'numeric' });
+    return d.toLocaleString('en-GB', {month: 'long', year: 'numeric'});
 };
 
 const currentYM = () => {
@@ -86,10 +110,16 @@ export default function KPITab() {
     const [editing, setEditing] = useState<KPI | null>(null);
     const [isWeekly, setIsWeekly] = useState(false);
     const [hasPeriod, setHasPeriod] = useState(true);
-
     const [form, setForm] = useState({
         title: '', current: '', target: '', unit: '', parentId: '', period: '',
     });
+    const [errors, setErrors] = useState<{
+        title?: string;
+        current?: string;
+        target?: string;
+        period?: string;
+        parentId?: string
+    }>({});
 
     // ---- Supabase helpers ----
     const fetchKpis = async () => {
@@ -97,25 +127,35 @@ export default function KPITab() {
         let monthlyRows: MonthlyRow[] = [];
         let weeklyRows: WeeklyRow[] = [];
 
-        const { data: monthlyWithPeriod, error: mErr } = await supabase
+        const {data: monthlyWithPeriod, error: mErr} = await supabase
             .from('kpi_monthly').select('id,title,unit,target,current,period').order('id');
 
         if (mErr && (mErr as { code?: string }).code === '42703') {
-            const { data: monthlyNoPeriod, error: mErr2 } = await supabase
+            const {data: monthlyNoPeriod, error: mErr2} = await supabase
                 .from('kpi_monthly').select('id,title,unit,target,current').order('id');
-            if (mErr2) { console.error(mErr2); setLoading(false); return; }
+            if (mErr2) {
+                console.error(mErr2);
+                setLoading(false);
+                return;
+            }
             monthlyRows = (monthlyNoPeriod ?? []) as unknown as MonthlyRow[];
             setHasPeriod(false);
         } else if (mErr) {
-            console.error(mErr); setLoading(false); return;
+            console.error(mErr);
+            setLoading(false);
+            return;
         } else {
             monthlyRows = (monthlyWithPeriod ?? []) as unknown as MonthlyRow[];
             setHasPeriod(true);
         }
 
-        const { data: weekly, error: wErr } = await supabase
+        const {data: weekly, error: wErr} = await supabase
             .from('kpi_weekly').select('id,parent_id,title,unit,target,current').order('id');
-        if (wErr) { console.error(wErr); setLoading(false); return; }
+        if (wErr) {
+            console.error(wErr);
+            setLoading(false);
+            return;
+        }
         weeklyRows = (weekly ?? []) as unknown as WeeklyRow[];
 
         const mappedMonthly: KPI[] = monthlyRows.map(m => ({
@@ -147,40 +187,59 @@ export default function KPITab() {
     };
 
     const upsertMonthly = async (payload: MonthlyUpsert) => {
-        const { data, error } = await supabase.from('kpi_monthly').upsert(payload, { onConflict: 'id' }).select().maybeSingle();
-        if (error) throw error; return data as MonthlyRow | null;
+        const {
+            data,
+            error
+        } = await supabase.from('kpi_monthly').upsert(payload, {onConflict: 'id'}).select().maybeSingle();
+        if (error) throw error;
+        return data as MonthlyRow | null;
     };
     const insertMonthly = async (payload: MonthlyInsert) => {
-        const { data, error } = await supabase.from('kpi_monthly').insert(payload).select().maybeSingle();
-        if (error) throw error; return data as MonthlyRow | null;
+        const {data, error} = await supabase.from('kpi_monthly').insert(payload).select().maybeSingle();
+        if (error) throw error;
+        return data as MonthlyRow | null;
     };
     const upsertWeekly = async (payload: WeeklyUpsert) => {
-        const { data, error } = await supabase.from('kpi_weekly').upsert(payload, { onConflict: 'id' }).select().maybeSingle();
-        if (error) throw error; return data as WeeklyRow | null;
+        const {
+            data,
+            error
+        } = await supabase.from('kpi_weekly').upsert(payload, {onConflict: 'id'}).select().maybeSingle();
+        if (error) throw error;
+        return data as WeeklyRow | null;
     };
     const insertWeekly = async (payload: WeeklyInsert) => {
-        const { data, error } = await supabase.from('kpi_weekly').insert(payload).select().maybeSingle();
-        if (error) throw error; return data as WeeklyRow | null;
+        const {data, error} = await supabase.from('kpi_weekly').insert(payload).select().maybeSingle();
+        if (error) throw error;
+        return data as WeeklyRow | null;
     };
     const deleteMonthly = async (id: number | string) => {
-        const { error } = await supabase.from('kpi_monthly').delete().eq('id', Number(id)); if (error) throw error;
+        const {error} = await supabase.from('kpi_monthly').delete().eq('id', Number(id));
+        if (error) throw error;
     };
     const deleteWeekly = async (id: number | string) => {
-        const { error } = await supabase.from('kpi_weekly').delete().eq('id', Number(id)); if (error) throw error;
+        const {error} = await supabase.from('kpi_weekly').delete().eq('id', Number(id));
+        if (error) throw error;
     };
     const incrementWeekly = async (id: number | string, currentVal: number) => {
         try {
-            const { error } = await supabase.from('kpi_weekly').update({ current: currentVal + 1 }).eq('id', Number(id));
-            if (error) throw error; await fetchKpis();
-        } catch (e) { console.error(e); alert('Increment failed.'); }
+            const {error} = await supabase.from('kpi_weekly').update({current: currentVal + 1}).eq('id', Number(id));
+            if (error) throw error;
+            await fetchKpis();
+        } catch (e) {
+            console.error(e);
+            alert('Increment failed.');
+        }
     };
 
     // ---- Lifecycle ----
-    useEffect(() => { fetchKpis(); }, []);
+    useEffect(() => {
+        fetchKpis();
+    }, []);
 
     // ---- Dialog helpers ----
     const openNew = (weekly: boolean) => {
-        setEditing(null); setIsWeekly(weekly);
+        setEditing(null);
+        setIsWeekly(weekly);
         setForm({
             title: '', current: '', target: '', unit: '', parentId: '',
             period: (!weekly && hasPeriod) ? (selectedPeriod || currentYM()) : ''
@@ -188,7 +247,8 @@ export default function KPITab() {
         setIsDialogOpen(true);
     };
     const openEdit = (kpi: KPI) => {
-        setEditing(kpi); setIsWeekly(!!kpi.parentId);
+        setEditing(kpi);
+        setIsWeekly(!!kpi.parentId);
         setForm({
             title: kpi.title, current: String(kpi.current), target: String(kpi.target),
             unit: kpi.unit ?? '', parentId: kpi.parentId ? String(kpi.parentId) : '', period: kpi.period ?? '',
@@ -203,35 +263,35 @@ export default function KPITab() {
     const weekly = kpis.filter(k => k.parentId !== null && k.parentId !== undefined);
 
     const save = async () => {
-        const { title, current, target, unit, parentId, period } = form;
-        if (!title || !current || !target || (isWeekly && !parentId)) return;
-        if (!isWeekly && hasPeriod && !period) {
-            alert('Please select a month.');
-            return;
-        }
+        const {title, current, target, unit, parentId, period} = form;
 
+        if (!validate()) return;
         try {
             if (isWeekly) {
                 const parent = monthly.find(m => String(m.id) === String(parentId));
-                const parentUnit = parent?.unit ?? ''; const childUnit = unit || '';
-                if (parentUnit !== childUnit) { alert(`Unit mismatch. Weekly must match '${parentUnit || '—'}'.`); return; }
+                const parentUnit = parent?.unit ?? '';
+                const childUnit = unit || '';
+                if (parentUnit !== childUnit) {
+                    alert(`Unit mismatch. Weekly must match '${parentUnit || '—'}'.`);
+                    return;
+                }
                 await upsertWeekly({
                     id: editing?.id, parent_id: Number(parentId), title, unit: childUnit,
                     current: Number(current), target: Number(target),
                 });
             } else {
                 const payload: MonthlyUpsert = {
-                    id: editing?.id,
-                    title,
-                    unit: unit || '',
-                    current: Number(current),
-                    target: Number(target),
-                    ...(hasPeriod ? { period } : {})
+                    id: editing?.id, title, unit: unit || '', current: Number(current), target: Number(target),
+                    ...(hasPeriod ? {period} : {})
                 };
                 await upsertMonthly(payload);
             }
-            await fetchKpis(); setIsDialogOpen(false);
-        } catch (e) { console.error(e); alert('Saving failed.'); }
+            await fetchKpis();
+            setIsDialogOpen(false);
+        } catch (e) {
+            console.error(e);
+            alert('Saving failed.');
+        }
     };
 
     const confirmDelete = async () => {
@@ -239,8 +299,13 @@ export default function KPITab() {
         try {
             if (editing.parentId !== null && editing.parentId !== undefined) await deleteWeekly(editing.id);
             else await deleteMonthly(editing.id);
-            setConfirmOpen(false); setIsDialogOpen(false); await fetchKpis();
-        } catch (e) { console.error(e); alert('Delete failed.'); }
+            setConfirmOpen(false);
+            setIsDialogOpen(false);
+            await fetchKpis();
+        } catch (e) {
+            console.error(e);
+            alert('Delete failed.');
+        }
     };
 
     const duplicateEditing = async () => {
@@ -256,10 +321,10 @@ export default function KPITab() {
                 const newMonthly = await insertMonthly({
                     title: `Copy of ${editing.title}`, unit: editing.unit || '',
                     target: Number(editing.target), current: Number(editing.current),
-                    ...(editing.period ? { period: editing.period } : {}),
+                    ...(editing.period ? {period: editing.period} : {}),
                 });
                 if (!newMonthly) throw new Error('Monthly duplicate failed');
-                const { data: children, error: cErr } = await supabase
+                const {data: children, error: cErr} = await supabase
                     .from('kpi_weekly').select('id,parent_id,title,unit,target,current')
                     .eq('parent_id', Number(editing.id));
                 if (cErr) throw cErr;
@@ -269,12 +334,30 @@ export default function KPITab() {
                     target: Number(wk.target) ?? 0, current: Number(wk.current) ?? 0,
                 }));
                 if (inserts.length) {
-                    const { error: bulkErr } = await supabase.from('kpi_weekly').insert(inserts);
+                    const {error: bulkErr} = await supabase.from('kpi_weekly').insert(inserts);
                     if (bulkErr) throw bulkErr;
                 }
             }
-            await fetchKpis(); setIsDialogOpen(false);
-        } catch (e) { console.error(e); alert('Duplicate failed.'); }
+            await fetchKpis();
+            setIsDialogOpen(false);
+        } catch (e) {
+            console.error(e);
+            alert('Duplicate failed.');
+        }
+    };
+
+    const validate = () => {
+        const e: { title?: string; current?: string; target?: string; period?: string; parentId?: string } = {};
+        const isMonthly = !isWeekly;
+
+        if (!form.title.trim()) e.title = 'Title is required.';
+        if (form.current === '') e.current = 'Current value is required.';
+        if (form.target === '') e.target = 'Target value is required.';
+        if (isWeekly && !form.parentId) e.parentId = 'Select a parent KPI.';
+        if (isMonthly && hasPeriod && !form.period) e.period = 'Month is required.';
+
+        setErrors(e);
+        return Object.keys(e).length === 0;
     };
 
     // ---- Render ----
@@ -286,7 +369,7 @@ export default function KPITab() {
                         <span className="text-sm text-slate-600">Showing period:</span>
                         <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
                             <SelectTrigger className="w-[220px]">
-                                <SelectValue placeholder="Select month" />
+                                <SelectValue placeholder="Select month"/>
                             </SelectTrigger>
                             <SelectContent>
                                 {availablePeriods.map(p => (
@@ -302,7 +385,8 @@ export default function KPITab() {
                 <h2 className="text-xl font-semibold">Monthly KPIs</h2>
                 <div className="flex gap-2">
                     <Button onClick={() => openNew(false)} className="gap-2"><Plus size={18}/>Monthly KPI</Button>
-                    <Button variant="secondary" onClick={() => openNew(true)} className="gap-2"><Plus size={18}/>Weekly KPI</Button>
+                    <Button variant="secondary" onClick={() => openNew(true)} className="gap-2"><Plus size={18}/>Weekly
+                        KPI</Button>
                 </div>
             </header>
 
@@ -312,7 +396,7 @@ export default function KPITab() {
                 <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {monthly.map(kpi => {
                         const children = weekly.filter(w => String(w.parentId) === String(kpi.id));
-                        const derivedCurrent = children.length ? children.reduce((s,c)=>s+c.current,0) : kpi.current;
+                        const derivedCurrent = children.length ? children.reduce((s, c) => s + c.current, 0) : kpi.current;
                         const progress = derivedCurrent / (kpi.target || 1);
                         return (
                             <Card key={String(kpi.id)} className="shadow-md">
@@ -321,14 +405,16 @@ export default function KPITab() {
                                         <div className="font-semibold leading-snug">
                                             {kpi.period && (
                                                 <div className="mt-0 mb-2">
-                          <span className="inline-block rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium px-2 py-0.5 border border-indigo-100">
+                          <span
+                              className="inline-block rounded-full bg-indigo-50 text-indigo-700 text-xs font-medium px-2 py-0.5 border border-indigo-100">
                             {formatPeriodLabel(kpi.period)}
                           </span>
                                                 </div>
                                             )}
                                             <div>{kpi.title}</div>
                                         </div>
-                                        <Button variant="ghost" size="icon" onClick={() => openEdit(kpi)}><Edit size={16}/></Button>
+                                        <Button variant="ghost" size="icon" onClick={() => openEdit(kpi)}><Edit
+                                            size={16}/></Button>
                                     </div>
 
                                     <div className={`text-2xl font-bold tracking-tight ${textColor(progress)}`}>
@@ -337,9 +423,10 @@ export default function KPITab() {
                       / {kpi.unit}{kpi.target.toLocaleString()}
                     </span>
                                     </div>
-                                    <Progress value={Math.min(progress*100,100)} className={`h-2 ${progressBarClass(progress)}`}/>
+                                    <Progress value={Math.min(progress * 100, 100)}
+                                              className={`h-2 ${progressBarClass(progress)}`}/>
 
-                                    {children.length>0 && (
+                                    {children.length > 0 && (
                                         <div className="space-y-3 pt-2">
                                             {children.map(wk => {
                                                 const wp = wk.current / (wk.target || 1);
@@ -350,14 +437,19 @@ export default function KPITab() {
                                                         <div className="flex items-start justify-between">
                                                             <span className="text-sm font-medium">{wk.title}</span>
                                                             <div className="flex items-center gap-1">
-                                                                <Button variant="outline" className="h-6 w-6 px-0 text-xs" onClick={() => incrementWeekly(wk.id, wk.current)}>+1</Button>
-                                                                <Button variant="ghost" size="icon" onClick={() => openEdit(wk)}><Edit size={14}/></Button>
+                                                                <Button variant="outline"
+                                                                        className="h-6 w-6 px-0 text-xs"
+                                                                        onClick={() => incrementWeekly(wk.id, wk.current)}>+1</Button>
+                                                                <Button variant="ghost" size="icon"
+                                                                        onClick={() => openEdit(wk)}><Edit
+                                                                    size={14}/></Button>
                                                             </div>
                                                         </div>
                                                         <div className={`text-sm font-semibold ${textColor(wp)}`}>
                                                             {wk.unit}{wk.current} / {wk.unit}{wk.target}
                                                         </div>
-                                                        <Progress value={Math.min(wp*100,100)} className={`h-1.5 ${progressBarClass(wp)}`}/>
+                                                        <Progress value={Math.min(wp * 100, 100)}
+                                                                  className={`h-1.5 ${progressBarClass(wp)}`}/>
                                                     </div>
                                                 );
                                             })}
@@ -378,24 +470,64 @@ export default function KPITab() {
                     <div className="grid gap-4 py-4">
                         <div className="grid grid-cols-4 items-center gap-4">
                             <label className="text-right">Title</label>
-                            <Input value={form.title} onChange={(e)=>setForm({...form, title:e.target.value})} className="col-span-3"/>
+                            <Input
+                                value={form.title}
+                                onChange={(e) => {
+                                    setForm({...form, title: e.target.value});
+                                    if (errors.title) setErrors(s => ({...s, title: undefined}));
+                                }}
+                                className={`col-span-3 ${errors.title ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                            />
+                            {errors.title &&
+                                <p className="col-span-3 col-start-2 text-xs text-red-600">{errors.title}</p>}
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <label className="text-right">Current</label>
-                            <Input type="number" value={form.current} onChange={(e)=>setForm({...form, current:e.target.value})} className="col-span-3"/>
+                            <Input
+                                type="number"
+                                value={form.current}
+                                onChange={(e) => {
+                                    setForm({...form, current: e.target.value});
+                                    if (errors.current) setErrors(s => ({...s, current: undefined}));
+                                }}
+                                className={`col-span-3 ${errors.current ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                            />
+                            {errors.current &&
+                                <p className="col-span-3 col-start-2 text-xs text-red-600">{errors.current}</p>}
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <label className="text-right">Target</label>
-                            <Input type="number" value={form.target} onChange={(e)=>setForm({...form, target:e.target.value})} className="col-span-3"/>
+                            <Input
+                                type="number"
+                                value={form.target}
+                                onChange={(e) => {
+                                    setForm({...form, target: e.target.value});
+                                    if (errors.target) setErrors(s => ({...s, target: undefined}));
+                                }}
+                                className={`col-span-3 ${errors.target ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                            />
+                            {errors.target &&
+                                <p className="col-span-3 col-start-2 text-xs text-red-600">{errors.target}</p>}
                         </div>
                         <div className="grid grid-cols-4 items-center gap-4">
                             <label className="text-right">Unit</label>
-                            <Input value={form.unit} onChange={(e)=>setForm({...form, unit:e.target.value})} className="col-span-3" disabled={isWeekly} placeholder="$, %, blank…"/>
+                            <Input value={form.unit} onChange={(e) => setForm({...form, unit: e.target.value})}
+                                   className="col-span-3" disabled={isWeekly} placeholder="$, %, blank…"/>
                         </div>
                         {!isWeekly && hasPeriod && (
                             <div className="grid grid-cols-4 items-center gap-4">
                                 <label className="text-right">Month</label>
-                                <Input type="month" value={form.period} onChange={(e)=>setForm({...form, period:e.target.value})} className="col-span-3"/>
+                                <Input
+                                    type="month"
+                                    value={form.period}
+                                    onChange={(e) => {
+                                        setForm({...form, period: e.target.value});
+                                        if (errors.period) setErrors(s => ({...s, period: undefined}));
+                                    }}
+                                    className={`col-span-3 ${errors.period ? 'border-red-500 focus-visible:ring-red-500' : ''}`}
+                                />
+                                {errors.period &&
+                                    <p className="col-span-3 col-start-2 text-xs text-red-600">{errors.period}</p>}
                             </div>
                         )}
                         {isWeekly && (
@@ -404,18 +536,23 @@ export default function KPITab() {
                                 <Select
                                     value={form.parentId}
                                     onValueChange={(v) => {
-                                        setForm({ ...form, parentId: v });
+                                        setForm({...form, parentId: v});
+                                        if (errors.parentId) setErrors(s => ({...s, parentId: undefined}));
                                         const p = monthly.find(m => String(m.id) === v);
-                                        if (p) setForm(f => ({ ...f, unit: p.unit ?? '' }));
+                                        if (p) setForm(f => ({...f, unit: p.unit ?? ''}));
                                     }}
                                 >
-                                    <SelectTrigger className="col-span-3"><SelectValue placeholder="Select"/></SelectTrigger>
+                                    <SelectTrigger
+                                        className={`col-span-3 ${errors.parentId ? 'border-red-500 focus-visible:ring-red-500' : ''}`}>
+                                        <SelectValue placeholder="Select"/>
+                                    </SelectTrigger>
                                     <SelectContent>
-                                        {(hasPeriod ? monthly : allMonthly).map(m => (
-                                            <SelectItem key={String(m.id)} value={String(m.id)}>{m.title}</SelectItem>
-                                        ))}
+                                        {monthly.map(m => (<SelectItem key={String(m.id)}
+                                                                       value={String(m.id)}>{m.title}</SelectItem>))}
                                     </SelectContent>
                                 </Select>
+                                {errors.parentId &&
+                                    <p className="col-span-3 col-start-2 text-xs text-red-600">{errors.parentId}</p>}
                             </div>
                         )}
                     </div>
@@ -424,7 +561,8 @@ export default function KPITab() {
                             <>
                                 <Button variant="secondary" onClick={duplicateEditing}>Duplicate</Button>
                                 <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
-                                    <AlertDialogTrigger asChild><Button variant="destructive" className="mr-auto">Delete</Button></AlertDialogTrigger>
+                                    <AlertDialogTrigger asChild><Button variant="destructive"
+                                                                        className="mr-auto">Delete</Button></AlertDialogTrigger>
                                     <AlertDialogContent>
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Delete this KPI?</AlertDialogTitle>
