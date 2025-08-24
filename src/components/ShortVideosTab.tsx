@@ -264,10 +264,9 @@ export default function ShortVideosTab() {
                                                                 <div className="flex-1 truncate">{id}</div>
                                                                 {filmart ? (
                                                                     <span
-                                                                        className={`shrink-0 inline-flex items-center rounded border px-2 py-0.5 ${filmartBadgeClass(filmart)}`} title={filmart}
-                                                                    >
-                                                                        {filmart}
-                                                                    </span>
+                                                                        className={`shrink-0 inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] leading-tight ${filmartBadgeClass(filmart)}`}
+                                                                        title={filmart}
+                                                                    >{filmart}</span>
                                                                 ) : null}
                                                             </div>
                                                         </li>
