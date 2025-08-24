@@ -411,7 +411,9 @@ export default function KPITab() {
                                 >
                                     <SelectTrigger className="col-span-3"><SelectValue placeholder="Select"/></SelectTrigger>
                                     <SelectContent>
-                                        {monthly.map(m => (<SelectItem key={String(m.id)} value={String(m.id)}>{m.title}</SelectItem>))}
+                                        {(hasPeriod ? monthly : allMonthly).map(m => (
+                                            <SelectItem key={String(m.id)} value={String(m.id)}>{m.title}</SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                             </div>
