@@ -203,7 +203,10 @@ export default function ShortVideosTab() {
                             <div className="text-slate-500 text-sm">Goal Date</div>
                             <div className="text-lg font-semibold mb-1">{formatGoal(goalDate)}</div>
                             <div className="text-sm text-slate-600">
-                                Needed videos (days left): <span className="font-bold">{daysUntil(goalDate)}</span>
+                                Needed videos (excl today): <span className="font-bold">{daysUntil(goalDate)}</span>
+                            </div>
+                            <div className="text-sm text-slate-600">
+                                Needed videos (incl today): <span className="font-bold">{daysUntil(goalDate)+1}</span>
                             </div>
                         </CardContent></Card>
 
