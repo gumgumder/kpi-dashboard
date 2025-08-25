@@ -4,6 +4,8 @@ import {useEffect, useState} from 'react';
 import {Card, CardContent} from '@/components/ui/card';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
+import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue,} from '@/components/ui/select';
+
 
 // ---- module cache (persists until hard reload) ----
 let NOTION_STATS_CACHE: VideoStats | null = null;
@@ -50,11 +52,32 @@ const filmartBadgeClass = (v?: string) => {
 const FILMART_RANK: Record<string, number> = {
     'J - Solo': 0,
     'J-Solo-(noBG)': 1,
-    'J- Build': 2,
+    'J - Build': 2,
 };
 const filmartRank = (v?: string) => (v && FILMART_RANK[v.trim()] !== undefined ? FILMART_RANK[v.trim()] : 99);
 
 const TZ = 'Europe/Vienna';
+
+type PublishedToday = 'YES' | 'NOT_YET';
+
+const SELECT_COLORS: Record<PublishedToday, string> = {
+    YES: 'bg-green-50 text-green-700 border-green-200',
+    NOT_YET: 'bg-red-50 text-red-700 border-red-200',
+};
+
+const todayISO = () => {
+    const d = new Date();
+    // Vienna date in YYYY-MM-DD
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' })
+        .formatToParts(d);
+    const y = parts.find(p => p.type === 'year')!.value;
+    const m = parts.find(p => p.type === 'month')!.value;
+    const da = parts.find(p => p.type === 'day')!.value;
+    return `${y}-${m}-${da}`;
+};
+const todayLabelAT = () => new Date().toLocaleDateString('de-AT', { timeZone: TZ }); // dd.mm.yyyy
+
+const LOCAL_KEY = (iso: string) => `sv:published-today:${iso}`;
 
 function viennaTodayUTC(): Date {
     const parts = new Intl.DateTimeFormat('en-CA', {timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit'})
@@ -93,6 +116,8 @@ export default function ShortVideosTab() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [goalDate, setGoalDate] = useState<string>(endOfCurrentMonthISO());
+    const [publishedToday, setPublishedToday] = useState<PublishedToday>('NOT_YET');
+    const neededDays = daysUntil(goalDate) + (publishedToday === 'NOT_YET' ? 1 : 0);
 
     const load = async () => {
         setLoading(true);
@@ -126,6 +151,21 @@ export default function ShortVideosTab() {
         else void load();
     }, []);
 
+    useEffect(() => {
+        try {
+            const key = LOCAL_KEY(todayISO());
+            const saved = localStorage.getItem(key);
+            if (saved === 'YES' || saved === 'NOT_YET') setPublishedToday(saved);
+            else setPublishedToday('NOT_YET'); // reset each day
+        } catch {/* noop */}
+    }, []);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(LOCAL_KEY(todayISO()), publishedToday);
+        } catch {/* noop */}
+    }, [publishedToday]);
+
     // preload saved goal date from server
     useEffect(() => {
         (async () => {
@@ -144,7 +184,7 @@ export default function ShortVideosTab() {
         ? ALLOWED_STATUSES.reduce((acc, s) => acc + (stats.byStatus?.[s] ?? 0), 0)
         : 0;
     const totalExclScheduled = stats
-        ? Math.max(0, daysUntil(goalDate) - (stats.byStatus?.['Scheduled'] ?? 0))
+        ? Math.max(0, neededDays - (stats.byStatus?.['Scheduled'] ?? 0))
         : 0;
 
     // below totalExclScheduled computations:
@@ -203,10 +243,10 @@ export default function ShortVideosTab() {
                             <div className="text-slate-500 text-sm">Goal Date</div>
                             <div className="text-lg font-semibold mb-1">{formatGoal(goalDate)}</div>
                             <div className="text-sm text-slate-600">
-                                Needed videos (excl today): <span className="font-bold">{daysUntil(goalDate)}</span>
+                                Needed videos (accounting for today): <span className="font-bold">{neededDays}</span>
                             </div>
-                            <div className="text-sm text-slate-600">
-                                Needed videos (incl today): <span className="font-bold">{daysUntil(goalDate)+1}</span>
+                            <div className="text-xs text-slate-500">
+                                {publishedToday === 'NOT_YET' ? 'Including today (not yet published).' : 'Excluding today (already published).'}
                             </div>
                         </CardContent></Card>
 
@@ -218,9 +258,31 @@ export default function ShortVideosTab() {
                                 className="font-semibold">{stats ? totalExclScheduled : (loading ? '…' : 0)}</span>
                             </div>
                             <div className="text-sm">To be scripted: <span className="font-semibold">
-                {Math.max(0, daysUntil(goalDate) - (stats ? totalShown : 0))}
-              </span></div>
+                              {Math.max(0, neededDays - (stats ? totalShown : 0))}
+                            </span></div>
                         </CardContent></Card>
+
+                        <Card>
+                            <CardContent className="p-4 space-y-2">
+                                <div className="text-lg font-semibold">{`Today's Date: ${todayLabelAT()}`}</div>
+
+                                <div className="text-sm text-slate-600">Published today’s video</div>
+                                <Select value={publishedToday} onValueChange={(v) => setPublishedToday(v as PublishedToday)}>
+
+                                <SelectTrigger className={`h-9 border ${SELECT_COLORS[publishedToday]}`}>
+                                        <SelectValue placeholder="Select" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="YES">
+                                            <span className="text-green-700 font-medium">YES</span>
+                                        </SelectItem>
+                                        <SelectItem value="NOT_YET">
+                                            <span className="text-red-700 font-medium">NOT YET</span>
+                                        </SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </CardContent>
+                        </Card>
                     </div>
 
                     {/* ---- NEW: phase rollups row ---- */}
