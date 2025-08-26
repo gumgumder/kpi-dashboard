@@ -13,7 +13,7 @@ export default function KPIBoard() {
                 <TabsList>
                     <TabsTrigger value="kpis">KPIs</TabsTrigger>
                     <TabsTrigger value="videos">Short Videos</TabsTrigger>
-                    <TabsTrigger value="sheets">LinkedIn</TabsTrigger>
+                    <TabsTrigger value="sheets">Outreach</TabsTrigger>
                     <TabsTrigger value="revenue">Revenue</TabsTrigger>
                 </TabsList>
 

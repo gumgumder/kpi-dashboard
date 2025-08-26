@@ -69,6 +69,35 @@ interface WeeklyUpsert {
 
 type WeeklyInsert = Omit<WeeklyUpsert, 'id'>;
 
+// ---- Long-term types ----
+interface LTGoal {
+    id: number | string;
+    title: string;
+    unit: string;
+    target_total: number;
+    start_month: string; // YYYY-MM
+    end_month: string;   // YYYY-MM
+    notes?: string | null;
+}
+
+interface LTFuel {
+    id: number | string;
+    lt_goal_id: number | string;
+    period: string;          // YYYY-MM
+    monthly_kpi_id: number | string;
+    weight: number;
+    mode: 'current' | 'target' | 'both';
+}
+
+// computed for render
+type LTCheckpoint = { period: string; current: number; target: number; };
+type LTRow = {
+    goal: LTGoal;
+    checkpoints: LTCheckpoint[];      // one per month in range
+    totalCurrent: number;
+    totalTarget: number;
+};
+
 // ---- UI helpers ----
 const progressBarClass = (p: number) => {
     if (p >= 1.0) return '[&>div]:bg-green-700';
@@ -99,6 +128,51 @@ const currentYM = () => {
     return `${y}-${m}`;
 };
 
+// ---- Long-term helpers ----
+const normalizePeriod = (p?: string) => {
+    if (!p) return '';
+    const [y, m] = p.split('-');
+    if (!y || !m) return '';
+    return `${y}-${String(Number(m)).padStart(2, '0')}`;
+};
+const monthsBetween = (startYM: string, endYM: string) => {
+    const out: string[] = [];
+    const [sy, sm] = startYM.split('-').map(Number);
+    const [ey, em] = endYM.split('-').map(Number);
+    let y = sy, m = sm;
+    while (y < ey || (y === ey && m <= em)) {
+        out.push(`${y}-${String(m).padStart(2, '0')}`);
+        m++;
+        if (m > 12) {
+            m = 1;
+            y++;
+        }
+    }
+    return out;
+};
+const monthShort = (ym: string) => {
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleString('en-GB', {month: 'short'});
+};
+const pct = (num: number, den: number) =>
+    Math.max(0, Math.min(100, (num / (den || 1)) * 100));
+
+const MilestoneDot = ({pct}: { pct: number }) => {
+    const clamped = Math.max(0, Math.min(100, pct));
+    // partially filled circle via conic-gradient
+    return (
+        <div
+            className="h-5 w-5 rounded-full border border-slate-300"
+            style={{
+                backgroundImage: `conic-gradient(var(--dot-fill) ${clamped}%, transparent ${clamped}%)`,
+                // fallback color; Tailwind CSS var injected via parent
+            }}
+            aria-label={`${Math.round(clamped)}%`}
+            title={`${Math.round(clamped)}%`}
+        />
+    );
+};
+
 export default function KPITab() {
     const supabase = useMemo(() => createSupabaseBrowser(), []);
     const [kpis, setKpis] = useState<KPI[]>([]);
@@ -113,6 +187,25 @@ export default function KPITab() {
     const [form, setForm] = useState({
         title: '', current: '', target: '', unit: '', parentId: '', period: '',
     });
+    // ---- Long-term state ----
+    const [ltGoals, setLtGoals] = useState<LTGoal[]>([]);
+    const [ltFuels, setLtFuels] = useState<LTFuel[]>([]);
+    const [ltDialogOpen, setLtDialogOpen] = useState(false);
+    const [editingLT, setEditingLT] = useState<LTGoal | null>(null);
+
+    // dynamic fuel rows in dialog
+    type FuelForm = {
+        id?: number | string;
+        period: string;
+        monthly_kpi_id: string;
+        weight: string;
+        mode: 'both' | 'current' | 'target'
+    };
+    const [ltForm, setLtForm] = useState<{
+        title: string; unit: string; target_total: string; start_month: string; end_month: string; notes?: string;
+        fuels: FuelForm[];
+    }>({title: '', unit: '', target_total: '', start_month: currentYM(), end_month: currentYM(), notes: '', fuels: []});
+
     const [errors, setErrors] = useState<{
         title?: string;
         current?: string;
@@ -126,11 +219,13 @@ export default function KPITab() {
         setLoading(true);
         let monthlyRows: MonthlyRow[] = [];
         let weeklyRows: WeeklyRow[] = [];
+        let hasPeriodColumn = true;
 
         const {data: monthlyWithPeriod, error: mErr} = await supabase
             .from('kpi_monthly').select('id,title,unit,target,current,period').order('id');
 
         if (mErr && (mErr as { code?: string }).code === '42703') {
+            hasPeriodColumn = false;
             const {data: monthlyNoPeriod, error: mErr2} = await supabase
                 .from('kpi_monthly').select('id,title,unit,target,current').order('id');
             if (mErr2) {
@@ -139,14 +234,12 @@ export default function KPITab() {
                 return;
             }
             monthlyRows = (monthlyNoPeriod ?? []) as unknown as MonthlyRow[];
-            setHasPeriod(false);
         } else if (mErr) {
             console.error(mErr);
             setLoading(false);
             return;
         } else {
             monthlyRows = (monthlyWithPeriod ?? []) as unknown as MonthlyRow[];
-            setHasPeriod(true);
         }
 
         const {data: weekly, error: wErr} = await supabase
@@ -167,24 +260,43 @@ export default function KPITab() {
             current: Number(w.current) ?? 0, parentId: w.parent_id,
         }));
 
-        // collect periods (only if column exists)
-        if (hasPeriod) {
-            const uniq = Array.from(
-                new Set((monthlyRows ?? []).map(r => r.period).filter(Boolean) as string[])
-            ).sort(); // lexicographic works for YYYY-MM
+        if (hasPeriodColumn) {
+            const uniq = Array.from(new Set((monthlyRows ?? [])
+                .map(r => r.period).filter(Boolean) as string[])).sort();
             setAvailablePeriods(uniq);
-
-            // keep previous selection if still valid, else choose latest, else fallback to current month
-            setSelectedPeriod(prev => {
-                if (prev && uniq.includes(prev)) return prev;
-                if (uniq.length) return uniq[uniq.length - 1];
-                return currentYM();
-            });
+            setSelectedPeriod(prev => (prev && uniq.includes(prev)) ? prev : (uniq[uniq.length - 1] ?? currentYM()));
         }
-
+        setHasPeriod(hasPeriodColumn);   // <- set state once, after using local flag
         setKpis([...mappedMonthly, ...mappedWeekly]);
         setLoading(false);
     };
+
+    // --- Effective monthly values (sum weeklies if present) ---
+    const weeklyAggByParent = useMemo(() => {
+        const mp = new Map<string, { current: number; target: number }>();
+        kpis.forEach(k => {
+            if (k.parentId == null) return;
+            const key = String(k.parentId);
+            const prev = mp.get(key) ?? { current: 0, target: 0 };
+            mp.set(key, { current: prev.current + (k.current || 0), target: prev.target + (k.target || 0) });
+        });
+        return mp;
+    }, [kpis]);
+
+    const monthlyEffById = useMemo(() => {
+        const mp = new Map<number | string, { current: number; target: number; unit: string; period?: string }>();
+        const parents = kpis.filter(k => k.parentId == null);
+        parents.forEach(m => {
+            const agg = weeklyAggByParent.get(String(m.id));
+            mp.set(Number(m.id), {
+                current: agg ? agg.current : m.current,
+                target: agg ? agg.target : m.target,
+                unit: m.unit ?? '',
+                period: m.period,
+            });
+        });
+        return mp;
+    }, [kpis, weeklyAggByParent]);
 
     const upsertMonthly = async (payload: MonthlyUpsert) => {
         const {
@@ -231,10 +343,87 @@ export default function KPITab() {
         }
     };
 
+    const allMonthly = kpis.filter(k => k.parentId === null || k.parentId === undefined);
+    const monthly = hasPeriod
+        ? allMonthly.filter(m => m.period === selectedPeriod)
+        : allMonthly;
+    const weekly = kpis.filter(k => k.parentId !== null && k.parentId !== undefined);
+
+    // ---- Long-term Supabase helpers ----
+    const fetchLongTerm = async () => {
+        const [{data: goals, error: gErr}, {data: fuels, error: fErr}] = await Promise.all([
+            supabase.from('long_term_goals').select('id,title,unit,target_total,start_month,end_month,notes').order('id'),
+            supabase.from('lt_goal_fuels').select('id,lt_goal_id,period,monthly_kpi_id,weight,mode').order('lt_goal_id').order('period'),
+        ]);
+        if (gErr) {
+            console.error(gErr);
+            return;
+        }
+        if (fErr) {
+            console.error(fErr);
+            return;
+        }
+        setLtGoals((goals ?? []) as unknown as LTGoal[]);
+        setLtFuels((fuels ?? []) as unknown as LTFuel[]);
+    };
+
+    const upsertLTGoal = async (payload: Partial<LTGoal> & { id?: number | string }) => {
+        const {
+            data,
+            error
+        } = await supabase.from('long_term_goals').upsert(payload, {onConflict: 'id'}).select().maybeSingle();
+        if (error) throw error;
+        return data as LTGoal | null;
+    };
+    const replaceLTFuels = async (lt_goal_id: number | string, fuels: FuelForm[]) => {
+        // delete then insert
+        const del = await supabase.from('lt_goal_fuels').delete().eq('lt_goal_id', Number(lt_goal_id));
+        if (del.error) throw del.error;
+        if (!fuels.length) return;
+        const inserts = fuels.map(f => ({
+            lt_goal_id: Number(lt_goal_id),
+            period: normalizePeriod(f.period),
+            monthly_kpi_id: Number(f.monthly_kpi_id),
+            weight: Number(f.weight || 1),
+            mode: f.mode ?? 'both',
+        }));
+        const {error} = await supabase.from('lt_goal_fuels').insert(inserts);
+        if (error) throw error;
+    };
+
     // ---- Lifecycle ----
     useEffect(() => {
         fetchKpis();
+        fetchLongTerm();
     }, []);
+
+    const ltRows: LTRow[] = useMemo(() => {
+        return ltGoals.map(goal => {
+            const range = monthsBetween(normalizePeriod(goal.start_month), normalizePeriod(goal.end_month));
+            const fuelsForGoal = ltFuels.filter(f => String(f.lt_goal_id) === String(goal.id));
+
+            const monthAgg = new Map<string, { current: number; target: number }>();
+            range.forEach(p => monthAgg.set(p, { current: 0, target: 0 }));
+
+            for (const f of fuelsForGoal) {
+                const p = normalizePeriod(f.period);
+                if (!monthAgg.has(p)) continue;
+                const eff = monthlyEffById.get(Number(f.monthly_kpi_id));
+                if (!eff) continue;
+                const w = Number.isFinite(Number(f.weight)) ? Number(f.weight) : 1;
+                const addCur = (f.mode === 'target') ? 0 : w * (eff.current || 0);
+                const addTar = (f.mode === 'current') ? 0 : w * (eff.target || 0);
+                const prev = monthAgg.get(p)!;
+                monthAgg.set(p, { current: prev.current + addCur, target: prev.target + addTar });
+            }
+
+            const checkpoints = range.map(period => ({ period, ...(monthAgg.get(period) ?? { current: 0, target: 0 }) }));
+            const totalCurrent = checkpoints.reduce((s, c) => s + c.current, 0);
+            // show the explicit LT target (e.g., 80), not the sum of month targets
+            const totalTarget = Math.max(1, Number(goal.target_total) || 0);
+            return { goal, checkpoints, totalCurrent, totalTarget };
+        });
+    }, [ltGoals, ltFuels, monthlyEffById]);
 
     // ---- Dialog helpers ----
     const openNew = (weekly: boolean) => {
@@ -255,12 +444,6 @@ export default function KPITab() {
         });
         setIsDialogOpen(true);
     };
-
-    const allMonthly = kpis.filter(k => k.parentId === null || k.parentId === undefined);
-    const monthly = hasPeriod
-        ? allMonthly.filter(m => m.period === selectedPeriod)
-        : allMonthly;
-    const weekly = kpis.filter(k => k.parentId !== null && k.parentId !== undefined);
 
     const save = async () => {
         const {title, current, target, unit, parentId, period} = form;
@@ -363,6 +546,96 @@ export default function KPITab() {
     // ---- Render ----
     return (
         <div className="space-y-4">
+            {/* Long-Term Goals */}
+            <section className="space-y-3">
+                <div className="flex items-center justify-between">
+                    <h2 className="text-xl font-semibold">Long-Term Goals</h2>
+                    <Button onClick={() => {
+                        setEditingLT(null);
+                        setLtForm({
+                            title: '',
+                            unit: '',
+                            target_total: '',
+                            start_month: currentYM(),
+                            end_month: currentYM(),
+                            notes: '',
+                            fuels: [],
+                        });
+                        setLtDialogOpen(true);
+                    }}>Add LT Goal</Button>
+                </div>
+
+                {ltRows.length === 0 ? (
+                    <div className="text-slate-500 text-sm">No long-term goals yet.</div>
+                ) : (
+                    <div className="space-y-4">
+                        {ltRows.map(row => {
+                            const cumPct = pct(row.totalCurrent, row.totalTarget);
+                            return (
+                                <div key={row.goal.id} className="rounded-lg border p-3 bg-white shadow-sm">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="font-semibold">{row.goal.title}</div>
+                                        <div className="text-sm font-medium text-slate-700">
+                                            {row.goal.unit}{row.totalCurrent.toLocaleString()}{" "}
+                                            <span className="text-slate-400">/</span>{" "}
+                                            {row.goal.unit}{row.totalTarget.toLocaleString()}
+                                        </div>
+                                    </div>
+
+                                    <div className="relative">
+                                        <div
+                                            className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-slate-200"/>
+                                        <div
+                                            className="absolute left-0 top-1/2 -translate-y-1/2 h-[6px] rounded bg-green-600 transition-all"
+                                            style={{width: `${cumPct}%`}}/>
+
+                                        <div className="relative grid"
+                                             style={{gridTemplateColumns: `repeat(${row.checkpoints.length}, minmax(0,1fr))`}}>
+                                            {row.checkpoints.map(cp => (
+                                                <div key={cp.period} className="flex flex-col items-center gap-1">
+                                                    <MilestoneDot pct={pct(cp.current, cp.target)}/>
+                                                    <div
+                                                        className="text-xs text-slate-600">{monthShort(cp.period)}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="mt-2 flex items-center justify-between">
+                                        <div className="text-xs text-slate-500">
+                                            {formatPeriodLabel(row.goal.start_month)} – {formatPeriodLabel(row.goal.end_month)}
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button variant="ghost" size="sm" onClick={() => {
+                                                // open edit dialog with populated fields
+                                                setEditingLT(row.goal);
+                                                setLtForm({
+                                                    title: row.goal.title,
+                                                    unit: row.goal.unit,
+                                                    target_total: String(row.goal.target_total),
+                                                    start_month: normalizePeriod(row.goal.start_month),
+                                                    end_month: normalizePeriod(row.goal.end_month),
+                                                    notes: row.goal.notes ?? '',
+                                                    fuels: ltFuels
+                                                        .filter(f => String(f.lt_goal_id) === String(row.goal.id))
+                                                        .map(f => ({
+                                                            id: f.id,
+                                                            period: normalizePeriod(f.period),
+                                                            monthly_kpi_id: String(f.monthly_kpi_id),
+                                                            weight: String(f.weight ?? 1),
+                                                            mode: f.mode ?? 'both',
+                                                        })),
+                                                });
+                                                setLtDialogOpen(true);
+                                            }}>Edit</Button>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+            </section>
             <header className="flex items-center justify-between">
                 {hasPeriod && (
                     <div className="flex items-center gap-3">
@@ -463,6 +736,206 @@ export default function KPITab() {
             )}
 
             {/* Dialog */}
+            <Dialog open={ltDialogOpen} onOpenChange={setLtDialogOpen}>
+                <DialogContent className="sm:max-w-3xl w-[900px]">
+                    <DialogHeader>
+                        <DialogTitle>{editingLT ? 'Edit Long-Term Goal' : 'Add Long-Term Goal'}</DialogTitle>
+                    </DialogHeader>
+
+                    <div className="grid gap-4 py-2">
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <label className="text-right">Title</label>
+                            <Input className="col-span-3" value={ltForm.title}
+                                   onChange={e => setLtForm(f => ({...f, title: e.target.value}))}/>
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <label className="text-right">Unit</label>
+                            <Input className="col-span-3" value={ltForm.unit}
+                                   onChange={e => setLtForm(f => ({...f, unit: e.target.value}))}/>
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <label className="text-right">Target total</label>
+                            <Input type="number" className="col-span-3" value={ltForm.target_total}
+                                   onChange={e => setLtForm(f => ({...f, target_total: e.target.value}))}/>
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <label className="text-right">Start month</label>
+                            <Input type="month" className="col-span-3" value={ltForm.start_month}
+                                   onChange={e => setLtForm(f => ({
+                                       ...f,
+                                       start_month: normalizePeriod(e.target.value)
+                                   }))}/>
+                        </div>
+                        <div className="grid grid-cols-4 items-center gap-4">
+                            <label className="text-right">End month</label>
+                            <Input type="month" className="col-span-3" value={ltForm.end_month}
+                                   onChange={e => setLtForm(f => ({
+                                       ...f,
+                                       end_month: normalizePeriod(e.target.value)
+                                   }))}/>
+                        </div>
+
+                        {/* Fuels */}
+                        <div className="mt-2">
+                            <div className="flex items-center justify-between">
+                                <div className="font-medium">Fuels (month → monthly KPI)</div>
+                                <Button variant="secondary" size="sm" onClick={() => setLtForm(f => ({
+                                    ...f,
+                                    fuels: [...f.fuels, {
+                                        period: normalizePeriod(ltForm.start_month),
+                                        monthly_kpi_id: '',
+                                        weight: '1',
+                                        mode: 'both'
+                                    }]
+                                }))}>Add Fuel</Button>
+                            </div>
+
+                            <div className="mt-2 space-y-2">
+                                {ltForm.fuels.map((fuel, idx) => {
+                                    const period = normalizePeriod(fuel.period);
+                                    const monthOptions = monthsBetween(ltForm.start_month, ltForm.end_month);
+                                    const monthlyForPeriod = allMonthly
+                                        .filter(m => normalizePeriod(m.period) === period)
+                                        .map(m => {
+                                            const eff = monthlyEffById.get(Number(m.id))!;
+                                            return { m, eff };
+                                        });
+
+                                    return (
+                                        <div key={idx} className="grid grid-cols-12 gap-3 items-end border rounded p-3">
+                                            <div className="col-span-12 sm:col-span-3">
+                                                <label className="text-xs text-slate-500">Month</label>
+                                                <Select
+                                                    value={period}
+                                                    onValueChange={(v) =>
+                                                        setLtForm(f => {
+                                                            const fuels = [...f.fuels];
+                                                            fuels[idx] = { ...fuels[idx], period: v };
+                                                            return { ...f, fuels };
+                                                        })
+                                                    }
+                                                >
+                                                    <SelectTrigger><SelectValue placeholder="Month" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        {monthOptions.map(p => (
+                                                            <SelectItem key={p} value={p}>{formatPeriodLabel(p)}</SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="col-span-12 sm:col-span-5">
+                                                <label className="text-xs text-slate-500">Monthly KPI</label>
+                                                <Select
+                                                    value={String(fuel.monthly_kpi_id)}
+                                                    onValueChange={(v) =>
+                                                        setLtForm(f => {
+                                                            const fuels = [...f.fuels];
+                                                            fuels[idx] = { ...fuels[idx], monthly_kpi_id: v };
+                                                            return { ...f, fuels };
+                                                        })
+                                                    }
+                                                >
+                                                    <SelectTrigger><SelectValue placeholder="Select KPI" /></SelectTrigger>
+                                                    <SelectContent>
+                                                        {monthlyForPeriod.length === 0 ? (
+                                                            <SelectItem value="__none" disabled>No KPIs in this month</SelectItem>
+                                                        ) : monthlyForPeriod.map(({ m, eff }) => (
+                                                            <SelectItem key={String(m.id)} value={String(m.id)}>
+                                                                {m.title} ({m.unit}{eff.current} / {m.unit}{eff.target})
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="col-span-6 sm:col-span-2">
+                                                <label className="text-xs text-slate-500">Weight</label>
+                                                <Input
+                                                    type="number" step="0.1" value={fuel.weight}
+                                                    onChange={(e) =>
+                                                        setLtForm(f => {
+                                                            const fuels = [...f.fuels];
+                                                            fuels[idx] = { ...fuels[idx], weight: e.target.value };
+                                                            return { ...f, fuels };
+                                                        })
+                                                    }
+                                                />
+                                            </div>
+
+                                            <div className="col-span-6 sm:col-span-1">
+                                                <label className="text-xs text-slate-500">Mode</label>
+                                                <Select
+                                                    value={fuel.mode}
+                                                    onValueChange={(v: any) =>
+                                                        setLtForm(f => {
+                                                            const fuels = [...f.fuels];
+                                                            fuels[idx] = { ...fuels[idx], mode: v };
+                                                            return { ...f, fuels };
+                                                        })
+                                                    }
+                                                >
+                                                    <SelectTrigger><SelectValue /></SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="both">both</SelectItem>
+                                                        <SelectItem value="current">current</SelectItem>
+                                                        <SelectItem value="target">target</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+
+                                            <div className="col-span-12 sm:col-span-1 flex justify-end">
+                                                <Button
+                                                    variant="ghost"
+                                                    onClick={() =>
+                                                        setLtForm(f => {
+                                                            const fuels = [...f.fuels];
+                                                            fuels.splice(idx, 1);
+                                                            return { ...f, fuels };
+                                                        })
+                                                    }
+                                                >
+                                                    Remove
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button variant="secondary" onClick={() => setLtDialogOpen(false)}>Cancel</Button>
+                        <Button onClick={async () => {
+                            // minimal validation
+                            if (!ltForm.title.trim()) return alert('Title required');
+                            if (!ltForm.target_total) return alert('Target total required');
+                            if (ltForm.fuels.some(f => !f.period || !f.monthly_kpi_id)) return alert('Each fuel needs month and KPI');
+
+                            try {
+                                const payload = {
+                                    id: editingLT?.id,
+                                    title: ltForm.title,
+                                    unit: ltForm.unit ?? '',
+                                    target_total: Number(ltForm.target_total),
+                                    start_month: normalizePeriod(ltForm.start_month),
+                                    end_month: normalizePeriod(ltForm.end_month),
+                                    notes: ltForm.notes ?? null
+                                };
+                                const saved = await upsertLTGoal(payload);
+                                if (!saved) throw new Error('Save failed');
+                                await replaceLTFuels(saved.id, ltForm.fuels);
+                                await fetchLongTerm();
+                                setLtDialogOpen(false);
+                            } catch (e) {
+                                console.error(e);
+                                alert('Saving LT goal failed.');
+                            }
+                        }}>{editingLT ? 'Save' : 'Add'}</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
             <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
                 <DialogTrigger asChild></DialogTrigger>
                 <DialogContent className="sm:max-w-md">
