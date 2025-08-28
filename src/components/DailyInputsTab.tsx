@@ -107,23 +107,37 @@ export default function DailyInputsTab() {
     }, [supabase]);
 
     async function updateItem(id: string) {
+        if (!editTitle.trim() || !editStart || !editEnd || editEnd < editStart) return;
+
+        // 1) build new range + statuses (preserve overlap)
+        const row = items.find(i => i.id === id)!;
+        const newRange = daysBetween(editStart, editEnd);
+        const newStatuses: Record<string, DayStatus> = {};
+        for (const d of newRange) newStatuses[d] = row.statuses[d] ?? 'none';
+
+        // 2) optimistic update in UI
+        const prev = row;
+        const next = { ...row, title: editTitle.trim(), start_date: editStart, end_date: editEnd, statuses: newStatuses };
+        setItems(list => list.map(i => (i.id === id ? next : i)));
+
+        // 3) persist
         const { error } = await supabase
             .from('daily_inputs')
             .update({
-                title: editTitle,
-                start_date: editStart,
-                end_date: editEnd,
+                title: next.title,
+                start_date: next.start_date,
+                end_date: next.end_date,
+                statuses: next.statuses,
             })
             .eq('id', id);
 
-        if (!error) {
-            setItems(prev => prev.map(i =>
-                i.id === id ? { ...i, title: editTitle, start_date: editStart, end_date: editEnd } : i
-            ));
-            setEditingId(null);
-        } else {
+        if (error) {
+            // rollback on failure
+            setItems(list => list.map(i => (i.id === id ? prev : i)));
             alert(error.message);
+            return;
         }
+        setEditingId(null);
     }
 
     async function addItem() {
