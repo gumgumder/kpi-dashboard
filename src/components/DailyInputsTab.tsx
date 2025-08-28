@@ -5,9 +5,9 @@ import {Card, CardContent} from '@/components/ui/card';
 import {Button} from '@/components/ui/button';
 import {Input} from '@/components/ui/input';
 import {DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger} from '@/components/ui/dropdown-menu';
-import {Check, X, Plus} from 'lucide-react';
 import clsx from 'clsx';
 import {createSupabaseBrowser} from '@/lib/supabaseClient';
+import {Check, X, Plus, Flame, Crown} from 'lucide-react';
 
 type DayStatus = 'none' | 'done' | 'missed' | 'neutral';
 type Row = {
@@ -20,8 +20,9 @@ type Row = {
 
 function iso(d: Date) {
     const z = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    return z.toISOString().slice(0,10);
+    return z.toISOString().slice(0, 10);
 }
+
 function daysBetween(startISO: string, endISO: string): string[] {
     const s = new Date(startISO + 'T00:00:00Z');
     const e = new Date(endISO + 'T00:00:00Z');
@@ -36,41 +37,39 @@ function calcStats(statuses: Record<string, DayStatus>) {
 
     let done = 0, missed = 0, neutral = 0;
     let longestStreak = 0, currentStreak = 0, run = 0;
+    let elapsed = 0; // days with any selection up to today
 
     for (const d of days) {
         const st = statuses[d];
-        if (d > today) continue; // ignore future
-
+        if (d > today) continue;                 // ignore future
+        if (st !== 'none') elapsed++;            // any selection counts as "passed"
         if (st === 'done') {
-            done++; run++;
+            done++;
+            run++;
         } else if (st === 'neutral') {
-            neutral++; run++;       // neutral keeps the streak alive
-        } else if (st === 'missed') {
-            missed++; run = 0;      // missed breaks streak
-        } else {
-            // 'none' — skip, don’t break streak, don’t increment
-        }
+            neutral++;
+            run++;
+        }  // neutral keeps streak
+        else if (st === 'missed') {
+            missed++;
+            run = 0;
+        } // miss breaks streak
         longestStreak = Math.max(longestStreak, run);
     }
 
-    // compute current streak: walk backwards until a miss or start
+    // current streak: walk backward until a miss
     const rev = [...days].reverse();
-    currentStreak = 0;
     for (const d of rev) {
         if (d > today) continue;
         const st = statuses[d];
-        if (st === 'done' || st === 'neutral') {
-            currentStreak++;
-        } else if (st === 'missed') {
-            break;
-        } else if (st === 'none') {
-            continue; // skip blanks
-        }
+        if (st === 'done' || st === 'neutral') currentStreak++;
+        else if (st === 'missed') break;
+        // 'none' → skip
     }
 
-    const total = days.filter(d => d <= today).length;
-
-    return { done, missed, neutral, total, currentStreak, longestStreak };
+    const total = days.length;
+    const remaining = Math.max(0, total - elapsed);
+    return {done, missed, neutral, total, elapsed, remaining, currentStreak, longestStreak};
 }
 
 export default function DailyInputsTab() {
@@ -80,14 +79,18 @@ export default function DailyInputsTab() {
     const [start, setStart] = useState('');
     const [end, setEnd] = useState('');
     const [loading, setLoading] = useState(true);
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editTitle, setEditTitle] = useState('');
+    const [editStart, setEditStart] = useState('');
+    const [editEnd, setEditEnd] = useState('');
 
     // initial load
     useEffect(() => {
         (async () => {
-            const { data, error } = await supabase
+            const {data, error} = await supabase
                 .from('daily_inputs')
                 .select('id,title,start_date,end_date,statuses')
-                .order('created_at', { ascending: false });
+                .order('created_at', {ascending: false});
             if (!error && data) {
                 setItems(
                     data.map((r: any) => ({
@@ -102,6 +105,26 @@ export default function DailyInputsTab() {
             setLoading(false);
         })();
     }, [supabase]);
+
+    async function updateItem(id: string) {
+        const { error } = await supabase
+            .from('daily_inputs')
+            .update({
+                title: editTitle,
+                start_date: editStart,
+                end_date: editEnd,
+            })
+            .eq('id', id);
+
+        if (!error) {
+            setItems(prev => prev.map(i =>
+                i.id === id ? { ...i, title: editTitle, start_date: editStart, end_date: editEnd } : i
+            ));
+            setEditingId(null);
+        } else {
+            alert(error.message);
+        }
+    }
 
     async function addItem() {
         if (!title.trim() || !start || !end) return;
@@ -120,9 +143,11 @@ export default function DailyInputsTab() {
             statuses,
         };
         setItems(prev => [temp, ...prev]);
-        setTitle(''); setStart(''); setEnd('');
+        setTitle('');
+        setStart('');
+        setEnd('');
 
-        const { data, error } = await supabase
+        const {data, error} = await supabase
             .from('daily_inputs')
             .insert({
                 // no user_id on purpose (policy is public; column must allow null or not exist)
@@ -156,13 +181,13 @@ export default function DailyInputsTab() {
         const prevItem = items.find(i => i.id === id);
         if (!prevItem) return;
 
-        const nextStatuses = { ...prevItem.statuses, [dayISO]: status };
+        const nextStatuses = {...prevItem.statuses, [dayISO]: status};
         // optimistic
-        setItems(prev => prev.map(i => i.id !== id ? i : { ...i, statuses: nextStatuses }));
+        setItems(prev => prev.map(i => i.id !== id ? i : {...i, statuses: nextStatuses}));
 
-        const { error } = await supabase
+        const {error} = await supabase
             .from('daily_inputs')
-            .update({ statuses: nextStatuses })
+            .update({statuses: nextStatuses})
             .eq('id', id);
 
         if (error) {
@@ -174,7 +199,7 @@ export default function DailyInputsTab() {
     async function removeItem(id: string) {
         const snapshot = items;
         setItems(prev => prev.filter(i => i.id !== id));
-        const { error } = await supabase.from('daily_inputs').delete().eq('id', id);
+        const {error} = await supabase.from('daily_inputs').delete().eq('id', id);
         if (error) setItems(snapshot);
     }
 
@@ -185,18 +210,19 @@ export default function DailyInputsTab() {
                     <div className="flex flex-col md:flex-row md:items-end gap-3">
                         <div className="flex-1">
                             <label className="text-sm text-slate-600">Input name</label>
-                            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g., Post on LinkedIn" />
+                            <Input value={title} onChange={e => setTitle(e.target.value)}
+                                   placeholder="e.g., Post on LinkedIn"/>
                         </div>
                         <div>
                             <label className="text-sm text-slate-600">Start</label>
-                            <Input type="date" value={start} onChange={e => setStart(e.target.value)} />
+                            <Input type="date" value={start} onChange={e => setStart(e.target.value)}/>
                         </div>
                         <div>
                             <label className="text-sm text-slate-600">Goal date</label>
-                            <Input type="date" value={end} onChange={e => setEnd(e.target.value)} />
+                            <Input type="date" value={end} onChange={e => setEnd(e.target.value)}/>
                         </div>
                         <Button onClick={addItem} className="shrink-0">
-                            <Plus className="h-4 w-4 mr-1" /> Add
+                            <Plus className="h-4 w-4 mr-1"/> Add
                         </Button>
                     </div>
                     <div className="mt-3 text-xs text-slate-500">Range is inclusive.</div>
@@ -214,15 +240,40 @@ export default function DailyInputsTab() {
                         <Card key={it.id} className="border-slate-200">
                             <CardContent className="p-4">
                                 <div className="flex items-start gap-3">
-                                    {/* LEFT: title + meta + delete */}
                                     <div className="w-64 shrink-0">
-                                        <div className="font-medium">{it.title}</div>
-                                        <div className="text-xs text-slate-500">
-                                            {it.start_date} → {it.end_date} • {seq.length} days
-                                        </div>
-                                        <div className="mt-2">
-                                            <Button variant="outline" size="sm" onClick={() => removeItem(it.id)}>Delete</Button>
-                                        </div>
+                                        {editingId === it.id ? (
+                                            <div className="space-y-2">
+                                                <Input value={editTitle} onChange={e => setEditTitle(e.target.value)} />
+                                                <Input type="date" value={editStart} onChange={e => setEditStart(e.target.value)} />
+                                                <Input type="date" value={editEnd} onChange={e => setEditEnd(e.target.value)} />
+                                                <div className="flex gap-2">
+                                                    <Button size="sm" onClick={() => updateItem(it.id)}>Save</Button>
+                                                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <div className="font-medium">{it.title}</div>
+                                                <div className="text-xs text-slate-500">
+                                                    {it.start_date} → {it.end_date} • {seq.length} days
+                                                </div>
+                                                <div className="mt-2 flex gap-2">
+                                                    <Button variant="outline" size="sm" onClick={() => removeItem(it.id)}>Delete</Button>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setEditingId(it.id);
+                                                            setEditTitle(it.title);
+                                                            setEditStart(it.start_date);
+                                                            setEditEnd(it.end_date);
+                                                        }}
+                                                    >
+                                                        Edit
+                                                    </Button>
+                                                </div>
+                                            </>
+                                        )}
                                     </div>
 
                                     {/* RIGHT: dots + stats */}
@@ -240,16 +291,30 @@ export default function DailyInputsTab() {
 
                                         {/* Stats below the dots */}
                                         {(() => {
-                                            const stats = calcStats(it.statuses);
-                                            const pct = stats.total ? (stats.done / stats.total) * 100 : 0;
+                                            const s = calcStats(it.statuses);
+                                            const pctElapsed = s.total ? (s.elapsed / s.total) * 100 : 0;
                                             return (
-                                                <div className="mt-3 space-y-1">
-                                                    <div className="w-full h-2 bg-slate-200 rounded">
-                                                        <div className="h-2 bg-green-400 rounded" style={{ width: `${pct}%` }} />
+                                                <div className="mt-3 space-y-2">
+                                                    {/* elapsed vs to-go progress */}
+                                                    <div className="w-full h-2 bg-slate-200 rounded overflow-hidden">
+                                                        <div className="h-2 bg-sky-400"
+                                                             style={{width: `${pctElapsed}%`}}/>
                                                     </div>
                                                     <div className="flex justify-between text-xs text-slate-600">
-                                                        <span>{stats.done}/{stats.total} done • {stats.missed} missed • {stats.neutral} neutral</span>
-                                                        <span>Streak: {stats.currentStreak} / {stats.longestStreak}</span>
+                                                        <span>{s.elapsed}/{s.total} days passed • {s.remaining} to go</span>
+                                                        <span>{s.done}/{s.total} done • {s.missed} missed • {s.neutral} neutral</span>
+                                                    </div>
+
+                                                    {/* streak badges */}
+                                                    <div className="flex items-center gap-2">
+        <span
+            className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 text-orange-700 px-2 py-0.5 text-xs">
+          <Flame className="h-3 w-3"/> Current streak: {s.currentStreak}
+        </span>
+                                                        <span
+                                                            className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 text-violet-700 px-2 py-0.5 text-xs">
+          <Crown className="h-3 w-3"/> Longest streak: {s.longestStreak}
+        </span>
                                                     </div>
                                                 </div>
                                             );
@@ -267,7 +332,7 @@ export default function DailyInputsTab() {
 
 function DayDotMenu({
                         status, onSelect, dateISO,
-                    }: {status: DayStatus; onSelect: (s: DayStatus) => void; dateISO: string}) {
+                    }: { status: DayStatus; onSelect: (s: DayStatus) => void; dateISO: string }) {
     const base = "h-6 w-6 rounded-full border flex items-center justify-center shrink-0";
     const cls = {
         none: "bg-slate-200 border-slate-300",
@@ -276,9 +341,9 @@ function DayDotMenu({
         neutral: "bg-yellow-100 border-yellow-400", // or grey/blue, up to you
     }[status];
 
-    const icon = status === 'done'   ? <Check className="h-4 w-4" /> :
-        status === 'missed' ? <X className="h-4 w-4" /> :
-            status === 'neutral'? <span className="text-xs">–</span> :
+    const icon = status === 'done' ? <Check className="h-4 w-4"/> :
+        status === 'missed' ? <X className="h-4 w-4"/> :
+            status === 'neutral' ? <span className="text-xs">–</span> :
                 null;
 
     return (
@@ -290,10 +355,10 @@ function DayDotMenu({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
                 <DropdownMenuItem onClick={() => onSelect('done')}>
-                    <Check className="h-4 w-4 mr-2" /> Done ({dateISO})
+                    <Check className="h-4 w-4 mr-2"/> Done ({dateISO})
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onSelect('missed')}>
-                    <X className="h-4 w-4 mr-2" /> Missed ({dateISO})
+                    <X className="h-4 w-4 mr-2"/> Missed ({dateISO})
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onSelect('neutral')}>
                     <span className="mr-2">–</span> Neutral ({dateISO})
