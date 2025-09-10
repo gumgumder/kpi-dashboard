@@ -314,12 +314,12 @@ export default function KPITab() {
             if (editing.parentId !== null && editing.parentId !== undefined) {
                 await insertWeekly({
                     parent_id: Number(editing.parentId),
-                    title: `Copy of ${editing.title}`, unit: editing.unit || '',
+                    title: `${editing.title}`, unit: editing.unit || '',
                     target: Number(editing.target), current: Number(editing.current),
                 });
             } else {
                 const newMonthly = await insertMonthly({
-                    title: `Copy of ${editing.title}`, unit: editing.unit || '',
+                    title: `${editing.title}`, unit: editing.unit || '',
                     target: Number(editing.target), current: Number(editing.current),
                     ...(editing.period ? {period: editing.period} : {}),
                 });
@@ -330,7 +330,7 @@ export default function KPITab() {
                 if (cErr) throw cErr;
                 const inserts: WeeklyInsert[] = ((children as WeeklyRow[]) || []).map(wk => ({
                     parent_id: Number(newMonthly.id),
-                    title: `Copy of ${wk.title}`, unit: wk.unit ?? '',
+                    title: `${wk.title}`, unit: wk.unit ?? '',
                     target: Number(wk.target) ?? 0, current: Number(wk.current) ?? 0,
                 }));
                 if (inserts.length) {
