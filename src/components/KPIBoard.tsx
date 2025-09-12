@@ -6,6 +6,7 @@ import ShortVideosTab from '@/components/ShortVideosTab';
 import LinkedInTab from '@/components/LinkedInTab';
 import RevenueTab from '@/components/RevenueTab';
 import DailyInputsTab from '@/components/DailyInputsTab';
+import PlanTab from "@/components/PlanTab";
 
 export default function KPIBoard() {
     return (
@@ -14,7 +15,7 @@ export default function KPIBoard() {
                 <TabsList>
                     <TabsTrigger value="kpis">KPIs</TabsTrigger>
                     <TabsTrigger value="videos">Short Videos</TabsTrigger>
-                    <TabsTrigger value="sheets">LinkedIn</TabsTrigger>
+                    <TabsTrigger value="plan">Plan</TabsTrigger>
                     <TabsTrigger value="revenue">Revenue</TabsTrigger>
                     <TabsTrigger value="daily">Daily Inputs</TabsTrigger>
                 </TabsList>
@@ -27,8 +28,8 @@ export default function KPIBoard() {
                     <ShortVideosTab />
                 </TabsContent>
 
-                <TabsContent value="sheets" className="data-[state=inactive]:hidden">
-                    <LinkedInTab />
+                <TabsContent value="plan" className="data-[state=inactive]:hidden">
+                    <PlanTab />
                 </TabsContent>
 
                 <TabsContent value="revenue" className="data-[state=inactive]:hidden">
