@@ -4,7 +4,7 @@ import { sheetsClient } from '@/lib/google/sheets';
 export const runtime = "nodejs";
 
 
-export async function GET(_: NextRequest) {
+export async function GET() {
   try {
     const spreadsheetId = process.env.GOOGLE_SHEETS_REV_SPREADSHEET_ID;
     if (!spreadsheetId) return new Response('Missing sheet ID', { status: 500 });

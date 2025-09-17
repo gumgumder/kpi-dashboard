@@ -4,7 +4,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import KPITab from '@/components/KPITab';
 import ShortVideosTab from '@/components/ShortVideosTab';
 import OutreachTab from '@/components/OutreachTab';
-import LinkedInTab from '@/components/LinkedInTab';
 import RevenueTab from '@/components/RevenueTab';
 import DailyInputsTab from '@/components/DailyInputsTab';
 import PlanTab from "@/components/PlanTab";
