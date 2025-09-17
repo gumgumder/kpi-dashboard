@@ -100,7 +100,7 @@ export default function RevenueTab() {
               {loading ? 'Refreshing…' : 'Refresh'}
             </button>
             <a
-                href="/api/sheet-link"
+                href="/api/sheet-link?doc=rev"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm px-3 py-1.5 rounded-md border bg-green-50 text-green-700 hover:bg-green-100 ml-2"

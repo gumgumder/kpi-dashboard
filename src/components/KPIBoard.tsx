@@ -3,6 +3,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import KPITab from '@/components/KPITab';
 import ShortVideosTab from '@/components/ShortVideosTab';
+import OutreachTab from '@/components/OutreachTab';
 import LinkedInTab from '@/components/LinkedInTab';
 import RevenueTab from '@/components/RevenueTab';
 import DailyInputsTab from '@/components/DailyInputsTab';
@@ -16,6 +17,7 @@ export default function KPIBoard() {
                     <TabsTrigger value="kpis">KPIs</TabsTrigger>
                     <TabsTrigger value="videos">Short Videos</TabsTrigger>
                     <TabsTrigger value="plan">Plan</TabsTrigger>
+                    <TabsTrigger value="outreach">Outreach</TabsTrigger>
                     <TabsTrigger value="revenue">Revenue</TabsTrigger>
                     <TabsTrigger value="daily">Daily Inputs</TabsTrigger>
                 </TabsList>
@@ -30,6 +32,10 @@ export default function KPIBoard() {
 
                 <TabsContent value="plan" className="data-[state=inactive]:hidden">
                     <PlanTab />
+                </TabsContent>
+
+                <TabsContent value="outreach" className="data-[state=inactive]:hidden">
+                    <OutreachTab />
                 </TabsContent>
 
                 <TabsContent value="revenue" className="data-[state=inactive]:hidden">
