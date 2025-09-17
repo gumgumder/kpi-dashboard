@@ -48,14 +48,14 @@ export default function RevenueTab() {
 
   useEffect(() => { void load(); }, []);
 
-  const { headers, rows, chartData, totalRevenue, totalMRRSigned } = useMemo(() => {
+  const { headers, rows, chartData, totalRevenue, totalARRSigned } = useMemo(() => {
     if (!values.length) {
       return {
         headers: [] as string[],
         rows: [] as string[][],
         chartData: [] as ChartPoint[],
         totalRevenue: 0,
-        totalMRRSigned: 0,
+        totalARRSigned: 0,
       };
     }
 
@@ -87,12 +87,29 @@ export default function RevenueTab() {
       rows: rest,
       chartData: chart,
       totalRevenue: parsed.reduce((a, b) => a + b.revenue, 0),
-      totalMRRSigned: parsed.reduce((a, b) => a + b.retainer, 0),
+      totalARRSigned: parsed.reduce((a, b) => a + b.retainer, 0),
     };
   }, [values]);
 
   return (
       <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-slate-500">Range: {range || '—'}</div>
+          <div>
+            <button onClick={load} className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50" disabled={loading}>
+              {loading ? 'Refreshing…' : 'Refresh'}
+            </button>
+            <a
+                href="/api/sheet-link"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm px-3 py-1.5 rounded-md border bg-green-50 text-green-700 hover:bg-green-100 ml-2"
+            >
+              Edit in Google Sheets
+            </a>
+          </div>
+        </div>
+
         {/* Summary */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -100,17 +117,12 @@ export default function RevenueTab() {
             <div className="text-2xl font-semibold mt-1">{fmtEUR(totalRevenue)}</div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="text-xs text-slate-500">Total Recurring Signed (p.M)</div>
-            <div className="text-2xl font-semibold mt-1">{fmtEUR(totalMRRSigned)}</div>
+            <div className="text-xs text-slate-500">Total Recurring Signed (p.J)</div>
+            <div className="text-2xl font-semibold mt-1">{fmtEUR(totalARRSigned)}</div>
           </div>
         </div>
 
-        <div className="flex items-center justify-between">
-          <div className="text-sm text-slate-500">Range: {range || '—'}</div>
-          <button onClick={load} className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50" disabled={loading}>
-            {loading ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
+
 
         {error && <div className="text-red-600 text-sm border border-red-200 bg-red-50 px-3 py-2 rounded-md">{error}</div>}
 
