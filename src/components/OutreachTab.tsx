@@ -135,46 +135,47 @@ export default function OutreachTab() {
                   <Fragment key={g.key}>
                     {/* Weekly summary row (top) */}
                     <tr className={`${zebra} border-b align-middle`}>
-                      {headers.map((_, ci) => {
-                        if (ci === 0) {
-                          return (
-                              <td key={ci} className="px-3 py-2 font-semibold text-slate-800">
-                                <div className="flex items-center gap-3">
-                                  <button
-                                      onClick={() => toggleWeek(g.key)}
-                                      className="px-2 py-1 rounded-md border hover:bg-slate-50 text-xs"
-                                      aria-expanded={!!expanded[g.key]}
-                                      aria-controls={`week-${g.key}`}
-                                  >
-                                    {expanded[g.key] ? '▾' : '▸'}
-                                  </button>
-                                  <span className="inline-flex px-2 py-0.5 rounded-md bg-slate-700 text-white text-xs">
-                                {`KW ${g.week}`}
-                              </span>
-                                  <span className="text-slate-600 text-xs">{rangeShort}</span>
-                                </div>
-                              </td>
-                          );
-                        }
-                        const sum = g.sums[ci];
-                        // Column B emphasized; others subtle
-                          if (ci === 1) {
-                              const valB = Number.isFinite(sum) ? (Number.isInteger(sum) ? sum : sum.toFixed(2)) : 0;
-                              return (
-                                  <td key={ci} className="px-3 py-2">
-      <span className="inline-flex px-2 py-0.5 rounded bg-amber-200 text-amber-900 text-xs font-bold">
-        {valB}
-      </span>
-                                  </td>
-                              );
-                          }
-                          const val = Number.isFinite(sum) ? (Number.isInteger(sum) ? sum : sum.toFixed(2)) : 0;
-                        return (
-                            <td key={ci} className="px-3 py-2 text-slate-600 text-xs font-medium">
-                              {val}
-                            </td>
-                        );
-                      })}
+                        {headers.map((_, ci) => {
+                            if (ci === 0) {
+                                return (
+                                    <td key={ci} className="px-3 py-2 font-semibold text-slate-800">
+                                        <div className="flex items-center gap-3">
+                                            <button
+                                                onClick={() => toggleWeek(g.key)}
+                                                className="px-2 py-1 rounded-md border hover:bg-slate-50 text-xs"
+                                                aria-expanded={!!expanded[g.key]}
+                                                aria-controls={`week-${g.key}`}
+                                            >
+                                                {expanded[g.key] ? '▾' : '▸'}
+                                            </button>
+                                            <span className="inline-flex px-2 py-0.5 rounded-md bg-slate-700 text-white text-xs">
+            {`KW ${g.week}`}
+          </span>
+                                            <span className="text-slate-600 text-xs">{rangeShort}</span>
+                                        </div>
+                                    </td>
+                                );
+                            }
+
+                            const sum = g.sums[ci];
+                            if (ci === 1) {
+                                const valB = Number.isFinite(sum) ? (Number.isInteger(sum) ? sum : sum.toFixed(2)) : 0;
+                                return (
+                                    <td key={ci} className="px-3 py-2 font-bold">
+        <span className="inline-flex px-2 py-0.5 rounded bg-amber-200 text-amber-900 text-xs font-bold">
+          {valB}
+        </span>
+                                    </td>
+                                );
+                            }
+
+                            const val = Number.isFinite(sum) ? (Number.isInteger(sum) ? sum : sum.toFixed(2)) : 0;
+                            return (
+                                <td key={ci} className="px-3 py-2 text-slate-700 font-bold text-xs">
+                                    {val}
+                                </td>
+                            );
+                        })}
                     </tr>
 
                     {/* Daily rows (collapsible) */}
