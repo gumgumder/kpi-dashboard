@@ -1,33 +1,59 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar } from 'recharts';
-import { Legend } from 'recharts';
+import { ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Legend } from 'recharts';
 
-type ValuesResponse = { range: string; values: string[][] };
-type ChartPoint = { name: string; Umsatz: number };
-
-// integer-safe parser: "2,880" -> 2880
-function toInt(raw: unknown): number {
-  const s = String(raw ?? '').trim();
-  if (!s) return 0;
-  const n = Number.parseInt(s.replace(/[^\d-]/g, ''), 10);
-  return Number.isFinite(n) ? n : 0;
-}
+type ValuesResponse = { range: string; values: (string | number)[][] };
+type ChartPoint = { name: string; beyondAI: number; MedicMedia: number; UpWork: number };
 
 const fmtEUR = (n: number) =>
     new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 
-// match Recharts formatter signature (avoid any)
-type TooltipFormatter = (value: number | string, name: string, item: unknown, index: number) => string;
-const tooltipFormatter: TooltipFormatter = (value) =>
-    fmtEUR(typeof value === 'number' ? value : toInt(value));
+function toNumEU(raw: unknown): number {
+  if (typeof raw === 'number') return raw;
+  const s = String(raw ?? '').trim();
+  if (!s) return 0;
+  const cleaned = s.replace(/[^\d.,-]/g, '');
+  const n = Number.parseFloat(cleaned.replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+function fromSerial(serial: number): Date {
+  const base = new Date(Date.UTC(1899, 11, 30));
+  return new Date(base.getTime() + serial * 86400000);
+}
+
+const tryParseDate = (raw: unknown): Date | null => {
+  if (typeof raw === 'number') return fromSerial(raw);
+  const s = String(raw ?? '').trim();
+  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+  if (m) {
+    const dd = +m[1], mm0 = +m[2] - 1, yyyy = m[3].length === 2 ? +('20' + m[3]) : +m[3];
+    const d = new Date(yyyy, mm0, dd);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  const iso = new Date(s);
+  return isNaN(iso.getTime()) ? null : iso;
+};
+
+// A=date, C=business, D/E=signed, F/G=cash
+const COL = { date: 0, business: 2, signed1: 3, signed2: 4, cash1: 5, cash2: 6 } as const;
+
+// normalize business labels
+const normalizeBiz = (raw: unknown): 'beyondAI' | 'MedicMedia' | 'UpWork' | 'Other' => {
+  const s = String(raw ?? '').trim().toLowerCase();
+  if (/^beyond\s*ai$/.test(s)) return 'beyondAI';
+  if (/^medic\s*media$/.test(s)) return 'MedicMedia';
+  if (/^up\s*work$/.test(s) || s === 'upwork') return 'UpWork';
+  return 'Other';
+};
 
 export default function RevenueTab() {
-  const [values, setValues] = useState<string[][]>([]);
+  const [values, setValues] = useState<(string | number)[][]>([]);
   const [range, setRange] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [extended, setExtended] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -48,47 +74,98 @@ export default function RevenueTab() {
 
   useEffect(() => { void load(); }, []);
 
-  const { headers, rows, chartData, totalRevenue, totalARRSigned } = useMemo(() => {
+  const { chartData, totalSigned, totalCash, monthlyRows } = useMemo(() => {
     if (!values.length) {
       return {
-        headers: [] as string[],
-        rows: [] as string[][],
         chartData: [] as ChartPoint[],
-        totalRevenue: 0,
-        totalARRSigned: 0,
+        totalSigned: 0,
+        totalCash: 0,
+        monthlyRows: [] as {
+          monthLabel: string;
+          totalRev: number; cashCollected: number;
+          r_bai: number; r_mm: number; r_up: number;
+          c_bai: number; c_mm: number; c_up: number;
+        }[],
       };
     }
 
-    const MONTHS = [
-      'Jänner','Februar','März','April','Mai','Juni',
-      'Juli','August','September','Oktober','November','Dezember'
-    ];
+    const [, ...rest] = values; // ignore header safely
 
-    const [hdr, ...rest] = values;
-
-    // Parse rows from sheet
-    const parsed = rest.map((r) => ({
-      month: (r[0] ?? '').trim(),
-      revenue: toInt(r[1]),
-      retainer: toInt(r[2]),
-    }));
-
-    // Index by month for quick lookup
-    const revenueByMonth = Object.fromEntries(parsed.map(p => [p.month, p.revenue]));
-
-    // Build chart for all 12 months (zero if missing)
-    const chart: ChartPoint[] = MONTHS.map((m) => ({
-      name: m,
-      Umsatz: revenueByMonth[m] ?? 0,
-    }));
-
-    return {
-      headers: hdr,
-      rows: rest,
-      chartData: chart,
-      totalRevenue: parsed.reduce((a, b) => a + b.revenue, 0),
-      totalARRSigned: parsed.reduce((a, b) => a + b.retainer, 0),
+    type Bucket = {
+      revTotal: number;
+      cashTotal: number;
+      revByBiz:  { beyondAI: number; MedicMedia: number; UpWork: number; Other: number };
+      cashByBiz: { beyondAI: number; MedicMedia: number; UpWork: number; Other: number };
     };
+
+    const keyFor = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const buckets = new Map<string, Bucket>();
+
+    for (const r of rest) {
+      const d = tryParseDate(r[COL.date]); if (!d) continue;
+      const k = keyFor(new Date(d.getFullYear(), d.getMonth(), 1));
+
+      const signed = toNumEU(r[COL.signed1]) + toNumEU(r[COL.signed2]);
+      const cash   = toNumEU(r[COL.cash1])   + toNumEU(r[COL.cash2]);
+      const biz = normalizeBiz(r[COL.business]);
+
+      const b = buckets.get(k) ?? {
+        revTotal: 0, cashTotal: 0,
+        revByBiz:   { beyondAI: 0, MedicMedia: 0, UpWork: 0, Other: 0 },
+        cashByBiz:  { beyondAI: 0, MedicMedia: 0, UpWork: 0, Other: 0 },
+      };
+
+      if (signed > 0) { b.revTotal += signed;  b.revByBiz[biz]  += signed; }
+      if (cash   > 0) { b.cashTotal += cash;   b.cashByBiz[biz] += cash; }
+
+      buckets.set(k, b);
+    }
+
+    const year = new Date().getFullYear();
+    const MONTHS = ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+    type Row7 = {
+      monthLabel: string;
+      totalRev: number; cashCollected: number;
+      r_bai: number; r_mm: number; r_up: number;
+      c_bai: number; c_mm: number; c_up: number;
+    };
+
+    const chart: ChartPoint[] = [];
+    const monthlyRows: Row7[] = [];
+    let totalSigned = 0, totalCash = 0;
+
+    for (let m0 = 0; m0 < 12; m0++) {
+      const k = `${year}-${String(m0 + 1).padStart(2, '0')}`;
+      const b = buckets.get(k);
+
+      const rev  = b?.revTotal  ?? 0;
+      const cash = b?.cashTotal ?? 0;
+
+      monthlyRows.push({
+        monthLabel: `${MONTHS[m0]} ${year}`,
+        totalRev: rev,
+        cashCollected: cash,
+        r_bai: b?.revByBiz.beyondAI ?? 0,
+        r_mm:  b?.revByBiz.MedicMedia ?? 0,
+        r_up:  b?.revByBiz.UpWork ?? 0,
+        c_bai: b?.cashByBiz.beyondAI ?? 0,
+        c_mm:  b?.cashByBiz.MedicMedia ?? 0,
+        c_up:  b?.cashByBiz.UpWork ?? 0,
+      });
+
+      chart.push({
+        name: MONTHS[m0],
+        beyondAI: b?.revByBiz.beyondAI ?? 0,
+        MedicMedia: b?.revByBiz.MedicMedia ?? 0,
+        UpWork: b?.revByBiz.UpWork ?? 0,
+      });
+
+      totalSigned += rev;
+      totalCash += cash;
+    }
+
+    return { chartData: chart, totalSigned, totalCash, monthlyRows };
   }, [values]);
 
   return (
@@ -96,11 +173,17 @@ export default function RevenueTab() {
         <div className="flex items-center justify-between">
           <div className="text-sm text-slate-500">Range: {range || '—'}</div>
           <div>
+            <button
+                onClick={() => setExtended(e => !e)}
+                className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50 mr-2"
+            >
+              {extended ? 'Collapse' : 'Expand details'}
+            </button>
             <button onClick={load} className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50" disabled={loading}>
               {loading ? 'Refreshing…' : 'Refresh'}
             </button>
             <a
-                href="/api/sheet-link?doc=rev"
+                href="/api/sheet-link?doc=outreach"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm px-3 py-1.5 rounded-md border bg-green-50 text-green-700 hover:bg-green-100 ml-2"
@@ -113,44 +196,61 @@ export default function RevenueTab() {
         {/* Summary */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="text-xs text-slate-500">Total Revenue (12 months)</div>
-            <div className="text-2xl font-semibold mt-1">{fmtEUR(totalRevenue)}</div>
+            <div className="text-xs text-slate-500">Total Signed (12 months)</div>
+            <div className="text-2xl font-semibold mt-1">{fmtEUR(totalSigned)}</div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="text-xs text-slate-500">Total Recurring Signed (p.J)</div>
-            <div className="text-2xl font-semibold mt-1">{fmtEUR(totalARRSigned)}</div>
+            <div className="text-xs text-slate-500">Total Cash collected (12 months)</div>
+            <div className="text-2xl font-semibold mt-1">{fmtEUR(totalCash)}</div>
           </div>
         </div>
-
-
 
         {error && <div className="text-red-600 text-sm border border-red-200 bg-red-50 px-3 py-2 rounded-md">{error}</div>}
 
         {/* Two-column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {/* Table (left) */}
+          {/* Static monthly list */}
           <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
             <table className="min-w-full text-sm">
-              <tbody>
-              {(!rows.length && !loading) && (
-                  <tr><td className="p-4 text-slate-500">No revenue data.</td></tr>
-              )}
-              {headers.length > 0 && (
+              <thead>
+              {!extended ? (
                   <tr className="bg-slate-50 font-medium">
-                    {headers.map((h, i) => (
-                        <td key={i} className="p-2 border-t border-slate-100 whitespace-nowrap">{h}</td>
-                    ))}
+                    <th className="p-2 text-left">Month</th>
+                    <th className="p-2 text-right">Total Rev</th>
+                    <th className="p-2 text-right">Cash Collected</th>
+                  </tr>
+              ) : (
+                  <tr className="bg-slate-50 font-medium">
+                    <th className="p-2 text-left">Month</th>
+                    <th className="p-2 text-right">Rev beyond AI</th>
+                    <th className="p-2 text-right">Rev MedicMedia</th>
+                    <th className="p-2 text-right">Rev UpWork</th>
+                    <th className="p-2 text-right">Cash beyond AI</th>
+                    <th className="p-2 text-right">Cash MedicMedia</th>
+                    <th className="p-2 text-right">Cash UpWork</th>
                   </tr>
               )}
-              {rows.map((row, i) => (
-                  <tr key={i}>
-                    {row.map((cell, j) => (
-                        <td key={j} className="p-2 border-t border-slate-100 whitespace-nowrap">
-                          {j === 1 || j === 2 ? fmtEUR(toInt(cell)) : cell}
-                        </td>
-                    ))}
-                  </tr>
-              ))}
+              </thead>
+              <tbody>
+              {!extended
+                  ? monthlyRows.map(r => (
+                      <tr key={r.monthLabel}>
+                        <td className="p-2 border-t border-slate-100">{r.monthLabel}</td>
+                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.totalRev)}</td>
+                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.cashCollected)}</td>
+                      </tr>
+                  ))
+                  : monthlyRows.map(r => (
+                      <tr key={r.monthLabel}>
+                        <td className="p-2 border-t border-slate-100">{r.monthLabel}</td>
+                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.r_bai)}</td>
+                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.r_mm)}</td>
+                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.r_up)}</td>
+                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.c_bai)}</td>
+                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.c_mm)}</td>
+                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.c_up)}</td>
+                      </tr>
+                  ))}
               </tbody>
             </table>
           </div>
@@ -161,20 +261,13 @@ export default function RevenueTab() {
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis
-                      dataKey="name"
-                      interval={0}           // show every month
-                      minTickGap={0}         // don't auto-hide
-                      angle={-45}            // rotate to fit
-                      textAnchor="end"       // align with -45°
-                      height={70}            // extra room for labels
-                      tickMargin={6}
-                      tick={{ fontSize: 15 }}// smaller font
-                  />
+                  <XAxis dataKey="name" interval={0} minTickGap={0} angle={-45} textAnchor="end" height={70} tickMargin={6} tick={{ fontSize: 15 }} />
                   <YAxis allowDecimals={false} />
-                  <Tooltip formatter={(v: number) => fmtEUR(v)} />
-                  <Legend verticalAlign="top" height={28} />  {/* shows “Umsatz”, not months */}
-                  <Bar dataKey="Umsatz" />
+                  <Tooltip formatter={(v: any) => fmtEUR(typeof v === 'number' ? v : 0)} />
+                  <Legend verticalAlign="top" height={28} />
+                  <Bar dataKey="beyondAI"   name="beyond AI"  stackId="rev" fill="#8ff760" />
+                  <Bar dataKey="MedicMedia" name="MedicMedia" stackId="rev" fill="#51A5C5" />
+                  <Bar dataKey="UpWork"     name="UpWork"     stackId="rev" fill="#000000" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
