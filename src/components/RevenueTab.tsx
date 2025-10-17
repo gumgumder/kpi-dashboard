@@ -18,6 +18,16 @@ function toNumEU(raw: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+type RechartsValue = number | string | Array<number | string>;
+const tooltipFmt = (value: RechartsValue) => {
+  const num = Array.isArray(value)
+      ? Number(value[0])
+      : typeof value === 'number'
+          ? value
+          : toNumEU(value);
+  return fmtEUR(Number.isFinite(num) ? num : 0);
+};
+
 function fromSerial(serial: number): Date {
   const base = new Date(Date.UTC(1899, 11, 30));
   return new Date(base.getTime() + serial * 86400000);
@@ -263,7 +273,7 @@ export default function RevenueTab() {
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" interval={0} minTickGap={0} angle={-45} textAnchor="end" height={70} tickMargin={6} tick={{ fontSize: 15 }} />
                   <YAxis allowDecimals={false} />
-                  <Tooltip formatter={(v: any) => fmtEUR(typeof v === 'number' ? v : 0)} />
+                  <Tooltip formatter={tooltipFmt} />
                   <Legend verticalAlign="top" height={28} />
                   <Bar dataKey="beyondAI"   name="beyond AI"  stackId="rev" fill="#8ff760" />
                   <Bar dataKey="MedicMedia" name="MedicMedia" stackId="rev" fill="#51A5C5" />

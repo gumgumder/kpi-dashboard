@@ -1,5 +1,5 @@
 // src/app/api/google-sheets/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { sheetsClient } from '@/lib/google/sheets';
 
 export const runtime = "nodejs";
