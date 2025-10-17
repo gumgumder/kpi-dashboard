@@ -230,21 +230,21 @@ export default function RevenueTab() {
         {error && <div className="text-red-600 text-sm border border-red-200 bg-red-50 px-3 py-2 rounded-md">{error}</div>}
 
         {/* Two-column layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
           {/* Static monthly list */}
-          <div className="overflow-auto rounded-lg border border-slate-200 bg-white">
+          <div className="overflow-auto rounded-lg border border-slate-200 bg-white self-start">
             <table className="min-w-full text-sm">
               <thead>
               {!extended ? (
                   <tr className="bg-slate-50 font-medium">
                     <th className="p-2 text-left">Month</th>
-                    <th className="p-2 text-right">Total Rev</th>
-                    <th className="p-2 text-right">Cash Collected</th>
+                    <th className="p-2 text-center">Total Rev</th>
+                    <th className="p-2 text-center">Cash Collected</th>
                   </tr>
               ) : (
                   <tr className="bg-slate-50 font-medium">
                     <th className="p-2 text-left">Month</th>
-                    <th className="p-2 text-right border-l-2 border-slate-200">Revenue</th>
+                    <th className="p-2 text-left border-l-2 border-slate-200">Revenue</th>
                     <th className="p-2 text-right">beyond AI</th>
                     <th className="p-2 text-right">MedicMedia</th>
                     <th className="p-2 text-right">UpWork</th>
@@ -260,8 +260,8 @@ export default function RevenueTab() {
                   ? monthlyRows.map(r => (
                       <tr key={r.monthLabel}>
                         <td className="p-2 border-t border-slate-100">{r.monthLabel}</td>
-                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.totalRev)}</td>
-                        <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.cashCollected)}</td>
+                        <td className="p-2 border-t border-slate-100 text-center">{fmtEUR(r.totalRev)}</td>
+                        <td className="p-2 border-t border-slate-100 text-center">{fmtEUR(r.cashCollected)}</td>
                       </tr>
                   ))
                   : monthlyRows.map(r => (
