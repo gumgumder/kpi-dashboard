@@ -84,10 +84,11 @@ export default function RevenueTab() {
 
   useEffect(() => { void load(); }, []);
 
-  const { chartData, totalSigned, totalCash, monthlyRows } = useMemo(() => {
+  const { chartData, cashChartData, totalSigned, totalCash, monthlyRows } = useMemo(() => {
     if (!values.length) {
       return {
         chartData: [] as ChartPoint[],
+        cashChartData: [] as ChartPoint[],
         totalSigned: 0,
         totalCash: 0,
         monthlyRows: [] as {
@@ -141,7 +142,9 @@ export default function RevenueTab() {
       c_bai: number; c_mm: number; c_up: number;
     };
 
+    // ...inside useMemo, before the for-loop results:
     const chart: ChartPoint[] = [];
+    const cashChart: ChartPoint[] = [];          // NEW
     const monthlyRows: Row7[] = [];
     let totalSigned = 0, totalCash = 0;
 
@@ -164,6 +167,7 @@ export default function RevenueTab() {
         c_up:  b?.cashByBiz.UpWork ?? 0,
       });
 
+      // signed chart
       chart.push({
         name: MONTHS[m0],
         beyondAI: b?.revByBiz.beyondAI ?? 0,
@@ -171,11 +175,19 @@ export default function RevenueTab() {
         UpWork: b?.revByBiz.UpWork ?? 0,
       });
 
+      // cash chart  (NEW)
+      cashChart.push({
+        name: MONTHS[m0],
+        beyondAI: b?.cashByBiz.beyondAI ?? 0,
+        MedicMedia: b?.cashByBiz.MedicMedia ?? 0,
+        UpWork: b?.cashByBiz.UpWork ?? 0,
+      });
+
       totalSigned += rev;
       totalCash += cash;
     }
 
-    return { chartData: chart, totalSigned, totalCash, monthlyRows };
+    return { chartData: chart, cashChartData: cashChart, totalSigned, totalCash, monthlyRows }; // UPDATED
   }, [values]);
 
   return (
@@ -232,12 +244,14 @@ export default function RevenueTab() {
               ) : (
                   <tr className="bg-slate-50 font-medium">
                     <th className="p-2 text-left">Month</th>
-                    <th className="p-2 text-right">Rev beyond AI</th>
-                    <th className="p-2 text-right">Rev MedicMedia</th>
-                    <th className="p-2 text-right">Rev UpWork</th>
-                    <th className="p-2 text-right">Cash beyond AI</th>
-                    <th className="p-2 text-right">Cash MedicMedia</th>
-                    <th className="p-2 text-right">Cash UpWork</th>
+                    <th className="p-2 text-right border-l-2 border-slate-200">Revenue</th>
+                    <th className="p-2 text-right">beyond AI</th>
+                    <th className="p-2 text-right">MedicMedia</th>
+                    <th className="p-2 text-right">UpWork</th>
+                    <th className="p-2 text-right border-l-2 border-slate-200">Cash collected</th>
+                    <th className="p-2 text-right">beyond AI</th>
+                    <th className="p-2 text-right">MedicMedia</th>
+                    <th className="p-2 text-right">UpWork</th>
                   </tr>
               )}
               </thead>
@@ -253,20 +267,32 @@ export default function RevenueTab() {
                   : monthlyRows.map(r => (
                       <tr key={r.monthLabel}>
                         <td className="p-2 border-t border-slate-100">{r.monthLabel}</td>
+
+                        {/* vertical line BEFORE main Revenue */}
+                        <td className="p-2 border-t border-slate-100 text-right font-medium border-l-2 border-slate-200">
+                          {fmtEUR(r.totalRev)}
+                        </td>
                         <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.r_bai)}</td>
                         <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.r_mm)}</td>
                         <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.r_up)}</td>
+
+                        {/* vertical line BEFORE main Cash collected */}
+                        <td className="p-2 border-t border-slate-100 text-right font-medium border-l-2 border-slate-200">
+                          {fmtEUR(r.cashCollected)}
+                        </td>
                         <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.c_bai)}</td>
                         <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.c_mm)}</td>
                         <td className="p-2 border-t border-slate-100 text-right">{fmtEUR(r.c_up)}</td>
                       </tr>
-                  ))}
+                  ))
+              }
               </tbody>
             </table>
           </div>
 
           {/* Chart (right) */}
           <div className="rounded-lg border border-slate-200 bg-white p-2">
+            <div className="px-3 pt-2 pb-1 text-sm font-medium text-slate-800">Revenue signed</div>
             <div className="h-[340px]">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
@@ -281,6 +307,23 @@ export default function RevenueTab() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+
+            {/* Cash collected chart */}
+              <div className="px-3 pt-2 pb-1 text-sm font-medium text-slate-800">Cash collected</div>
+              <div className="h-[340px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={cashChartData} margin={{ top: 10, right: 20, left: 0, bottom: 10 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" interval={0} minTickGap={0} angle={-45} textAnchor="end" height={70} tickMargin={6} tick={{ fontSize: 15 }} />
+                    <YAxis allowDecimals={false} />
+                    <Tooltip formatter={tooltipFmt} />
+                    <Legend verticalAlign="top" height={28} />
+                    <Bar dataKey="beyondAI"   name="beyond AI"  stackId="cash" fill="#8ff760" />
+                    <Bar dataKey="MedicMedia" name="MedicMedia" stackId="cash" fill="#51A5C5" />
+                    <Bar dataKey="UpWork"     name="UpWork"     stackId="cash" fill="#000000" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
           </div>
         </div>
       </div>
