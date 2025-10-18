@@ -1,147 +1,214 @@
 // app/(dashboard)/kpi/outreach/page.tsx
 'use client';
-import {useEffect, useState, useCallback, useMemo, Fragment} from 'react';
+import { useEffect, useState, useCallback, JSX } from 'react';
 
-type ApiResp = { range: string; values: string[][] };
+type Status = 'red' | 'orange' | 'yellow' | 'green' | 'over' | null;
 
-function todayInVienna(): Date {
-    // get YYYY-MM-DD in Europe/Vienna, then construct a local Date at midnight
-    const s = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Europe/Vienna',
-        year: 'numeric', month: '2-digit', day: '2-digit'
-    }).format(new Date()); // e.g., "2025-09-19"
-    const [y, m, d] = s.split('-').map(Number);
-    return new Date(y, m - 1, d);
+type WeekAgg = {
+    key: string; week: number; year: number; start: string; end: string;
+    sums: number[];             // weekly totals (GLOBAL order per headersOut)
+    days: { date: string; sums: number[] }[]; // daily totals (same GLOBAL order)
+    statuses: Status[];         // NEW: per-column weekly status, aligned to headersOut
+};
+type TabAgg = {
+    tab: string; range: string; headers: string[]; headersOut: string[]; weeks: WeekAgg[];
+};
+type ApiAgg = { tabs: TabAgg[]; generatedAt: string };
+
+// ---------- label helpers ----------
+const norm = (s: string) => s.toLowerCase().replace(/[_\s]+/g, ' ').trim();
+type Part = 'J' | 'A' | null;
+
+function stripPrefix(h: string) {
+    const i = h.indexOf(':');
+    return i >= 0 ? h.slice(i + 1).trim() : h.trim();
+}
+function detectPart(name: string): Part {
+    const n = name.trim();
+    if (/^J(?:[_\s-]|$)/i.test(n)) return 'J';
+    if (/^A(?:[_\s-]|$)/i.test(n)) return 'A';
+    if (/_J$/i.test(n) || /\sJ$/i.test(n) || /\(J\)$/i.test(n)) return 'J';
+    if (/_A$/i.test(n) || /\sA$/i.test(n) || /\(A\)\s*$/i.test(n)) return 'A';
+    return null;
+}
+function baseName(name: string) {
+    let n = name.trim();
+    n = n.replace(/^J(?:[_\s-])?/i, '').replace(/^A(?:[_\s-])?/i, '');
+    n = n
+        .replace(/_J$/i, '').replace(/_A$/i, '')
+        .replace(/\sJ$/i, '').replace(/\sA$/i, '')
+        .replace(/\s*\(J\)\s*$/i, '').replace(/\s*\(A\)\s*$/i, '');
+    return n.trim();
 }
 
-function parseDateMMDDYYYY(s: string): Date | null {
-    const m = s?.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (!m) return null;
-    const [, mm, dd, yyyy] = m;
-    const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
-    return isNaN(+d) ? null : d;
+// Build part index with normalized keys
+function buildPartIndex(headersOut: string[]) {
+    const map: Record<string, { J?: number; A?: number }> = {};
+    headersOut.forEach((h, i) => {
+        const name = stripPrefix(h);
+        const part = detectPart(name);
+        const base = baseName(name);
+        const key = norm(base);
+        if (!map[key]) map[key] = {};
+        if (part === 'J') map[key].J = i;
+        if (part === 'A') map[key].A = i;
+    });
+    return map;
 }
 
-function isoWeekYear(date: Date) {
-    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
-    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-    const week = Math.ceil((((+d - +yearStart) / 86400000) + 1) / 7);
-    return {year: d.getUTCFullYear(), week};
+// Robust resolver: aliases + fallback contains-scan
+function resolvePartsRobust(
+    baseRaw: string,
+    partIdx: Record<string, { J?: number; A?: number }>,
+    headersOut: string[]
+) {
+    const aliases = [baseRaw, `LI ${baseRaw}`, `${baseRaw} LI`];
+    for (const raw of aliases) {
+        const key = norm(raw);
+        if (partIdx[key]) return partIdx[key];
+    }
+    // Fallback scan
+    const want = norm(baseRaw);
+    let J: number | undefined;
+    let A: number | undefined;
+    headersOut.forEach((h, i) => {
+        const name = stripPrefix(h);
+        const part = detectPart(name);
+        if (!part) return;
+        const b = norm(baseName(name));
+        if (b.includes(want)) {
+            if (part === 'J') J = i;
+            if (part === 'A') A = i;
+        }
+    });
+    return { J, A };
 }
 
-function fmtRangeShort(start: Date, end: Date) {
-    const m = (dt: Date) => dt.toLocaleString('de-AT', {month: 'short'}).replace('.', '');
-    const sameM = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear();
+// ---------- selection & projection ----------
+function buildSelectedIndices(headersOut: string[]) {
+    const contentIdxs: number[] = [];
+    const outreachIdxs: number[] = [];
+    headersOut.forEach((h, i) => {
+        if (h.startsWith('Content:')) contentIdxs.push(i);
+        else if (h.startsWith('Outreach:')) outreachIdxs.push(i);
+    });
+
+    // Content: exactly Connections, Posts, Comments (base totals)
+    const contentWants = ['Connections', 'Posts', 'Comments'].map(norm);
+    const pickContent = contentIdxs
+        .filter(i => detectPart(stripPrefix(headersOut[i]!)) === null
+            && contentWants.includes(norm(stripPrefix(headersOut[i]!))))
+        .sort((a, b) =>
+            contentWants.indexOf(norm(stripPrefix(headersOut[a]!))) -
+            contentWants.indexOf(norm(stripPrefix(headersOut[b]!)))
+        );
+
+    // Outreach: exactly LI_Erstnachricht, LI_FollowUp, Calls, UW_Proposals (base totals)
+    const outreachWants = ['LI_Erstnachricht', 'LI_FollowUp', 'Calls', 'UW_Proposals'].map(norm);
+    const pickOutreach = outreachIdxs
+        .filter(i => detectPart(stripPrefix(headersOut[i]!)) === null
+            && outreachWants.includes(norm(stripPrefix(headersOut[i]!))))
+        .sort((a, b) =>
+            outreachWants.indexOf(norm(stripPrefix(headersOut[a]!))) -
+            outreachWants.indexOf(norm(stripPrefix(headersOut[b]!)))
+        );
+
+    const selected = [...pickContent, ...pickOutreach];
+    return selected.length ? selected : headersOut.map((_, i) => i);
+}
+
+function projectToSelected<T extends number | string>(arr: T[], idx: number[]) {
+    return idx.map(i => arr[i] as T);
+}
+function projectStatuses(arr: Status[] | undefined, idx: number[]) {
+    return idx.map(i => (arr && i < arr.length ? arr[i] ?? null : null));
+}
+
+function toDeRange(aYmd: string, bYmd: string) {
+    const [ay, am, ad] = aYmd.split('-').map(Number);
+    const [by, bm, bd] = bYmd.split('-').map(Number);
+    const a = new Date(ay, am - 1, ad);
+    const b = new Date(by, bm - 1, bd);
+    const m = (dt: Date) => dt.toLocaleString('de-AT', { month: 'short' }).replace('.', '');
+    const sameM = a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
     return sameM
-        ? `${start.getDate()}–${end.getDate()} ${m(start)} ${start.getFullYear()}`
-        : `${start.getDate()} ${m(start)} ${start.getFullYear()} – ${end.getDate()} ${m(end)} ${end.getFullYear()}`;
+        ? `${a.getDate()}–${b.getDate()} ${m(a)} ${a.getFullYear()}`
+        : `${a.getDate()} ${m(a)} ${a.getFullYear()} – ${b.getDate()} ${m(b)} ${b.getFullYear()}`;
 }
 
-function pad2(n: number) {
-    return String(n).padStart(2, '0');
-}
-
-function labelMondayMMDDYYYY(d: Date) {
-    const weekday = d.toLocaleDateString('en-US', {weekday: 'long'}); // explicit English
-    return `${weekday}, ${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}/${d.getFullYear()}`;
+// Badge class for weekly overview (uses backend status)
+function badgeClass(status: Status, strong = false) {
+    const common = 'inline-flex px-2 py-0.5 rounded text-xs font-bold';
+    if (!status) return strong ? `${common} bg-slate-200 text-slate-900` : 'text-slate-700 font-bold text-xs';
+    switch (status) {
+        case 'red':    return `${common} bg-red-200 text-red-900`;
+        case 'orange': return `${common} bg-orange-200 text-orange-900`;
+        case 'yellow': return `${common} bg-yellow-200 text-yellow-900`;
+        case 'green':  return `${common} bg-green-200 text-green-900`;
+        case 'over': return `${common} bg-emerald-800 text-emerald-50`;
+        default:       return strong ? `${common} bg-slate-200 text-slate-900` : 'text-slate-700 font-bold text-xs';
+    }
 }
 
 export default function OutreachTab() {
-    const [range, setRange] = useState('');
-    const [values, setValues] = useState<string[][]>([]);
+    const [data, setData] = useState<ApiAgg | null>(null);
     const [loading, setLoading] = useState(false);
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+    const [showAll, setShowAll] = useState(false); // extended view = show "Total - J | A" where parts exist
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await fetch('/api/outreach', {cache: 'no-store'});
+            const res = await fetch('/api/outreach', { cache: 'no-store' });
             if (!res.ok) throw new Error(await res.text());
-            const data: ApiResp = await res.json();
-            setRange(data.range);
-            setValues(data.values);
+            const json: ApiAgg = await res.json();
+            setData(json);
+
+            // default expand current ISO week
+            const now = new Date();
+            const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+            d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+            const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+            const week = Math.ceil((((+d - +yearStart) / 86400000) + 1) / 7);
+            const currentKey = `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+
+            const next: Record<string, boolean> = {};
+            for (const t of json.tabs || []) {
+                const hasCurrent = t.weeks.some(w => w.key === currentKey);
+                t.weeks.forEach((w, idx) => {
+                    const k = `${t.tab}:${w.key}`;
+                    next[k] = hasCurrent ? w.key === currentKey : idx === t.weeks.length - 1;
+                });
+            }
+            setExpanded(next);
         } finally {
             setLoading(false);
         }
     }, []);
-    useEffect(() => {
-        load();
-    }, [load]);
 
-    const headers = values[0] ?? [];
-    const rows = values.slice(1);
-
-    const groups = useMemo(() => {
-        type G = {
-            key: string; year: number; week: number;
-            start: Date; end: Date;
-            rows: string[][];
-            sums: number[]; // per column
-        };
-        const map = new Map<string, G>();
-        for (const r of rows) {
-            const d = parseDateMMDDYYYY(r[0] ?? '');
-            if (!d) continue;
-            const {year, week} = isoWeekYear(d);
-            const k = `${year}-W${String(week).padStart(2, '0')}`;
-            if (!map.has(k)) map.set(k, {
-                key: k,
-                year,
-                week,
-                start: d,
-                end: d,
-                rows: [],
-                sums: Array(headers.length).fill(0)
-            });
-            const g = map.get(k)!;
-            g.rows.push(r);
-            if (d < g.start) g.start = d;
-            if (d > g.end) g.end = d;
-            // sum all numeric columns except date col (A)
-            for (let ci = 1; ci < headers.length; ci++) {
-                const n = parseFloat((r[ci] ?? '').toString().replace(',', '.'));
-                if (!isNaN(n)) g.sums[ci] += n;
-            }
-        }
-        return Array.from(map.values()).sort((a, b) => a.year - b.year || a.week - b.week);
-    }, [rows, headers.length]);
-
-    // default: only latest week expanded
-    useEffect(() => {
-        if (!groups.length) return;
-
-        // compute current Vienna ISO week key
-        const today = todayInVienna();
-        const {year, week} = isoWeekYear(today);
-        const currentKey = `${year}-W${String(week).padStart(2, '0')}`;
-
-        // expand current week if present; else keep only the last one expanded as fallback
-        const hasCurrent = groups.some(g => g.key === currentKey);
-        const next = Object.fromEntries(
-            groups.map((g, i) => [g.key, hasCurrent ? g.key === currentKey : i === groups.length - 1])
-        );
-        setExpanded(next);
-    }, [groups.map(g => g.key).join('|')]);
-
-    const toggleWeek = (key: string) => setExpanded((s) => ({...s, [key]: !s[key]}));
+    useEffect(() => { load(); }, [load]);
 
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
-                <div className="text-sm text-slate-500">Range: {range || '—'}</div>
+                <div className="text-sm text-slate-500">
+                    Updated: {data?.generatedAt ? new Date(data.generatedAt).toLocaleString('de-AT') : '—'}
+                </div>
                 <div className="flex gap-2">
-                    <button
-                        onClick={load}
-                        className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50"
-                        disabled={loading}
-                    >
+                    <button onClick={load} className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50" disabled={loading}>
                         {loading ? 'Refreshing…' : 'Refresh'}
+                    </button>
+                    <button
+                        onClick={() => setShowAll(v => !v)}
+                        className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50"
+                        aria-pressed={showAll}
+                        title={showAll ? 'Show compact values' : 'Show Total - J | A'}
+                    >
+                        {showAll ? 'Compact values' : 'Expand info'}
                     </button>
                     <a
                         href="/api/sheet-link?doc=outreach"
-                        target="_blank"
-                        rel="noopener noreferrer"
+                        target="_blank" rel="noopener noreferrer"
                         className="text-sm px-3 py-1.5 rounded-md border bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                     >
                         Edit in Google Sheets
@@ -149,113 +216,181 @@ export default function OutreachTab() {
                 </div>
             </div>
 
-            <div className="overflow-x-auto rounded-lg border w-full">
-                <table className="min-w-full w-full text-sm">
-                    <thead className="bg-slate-100">
-                    <tr>
-                        {headers.map((h, i) => (
-                            <th key={i} className="px-3 py-2 text-left font-medium text-slate-700 border-b">{h}</th>
-                        ))}
-                    </tr>
-                    </thead>
+            {(data?.tabs?.length ?? 0) === 0 && (
+                <div className="overflow-x-auto rounded-lg border w-full">
+                    <div className="px-3 py-6 text-slate-500 text-sm">No data</div>
+                </div>
+            )}
 
-                    <tbody>
-                    {groups.length === 0 && (
-                        <tr>
-                            <td className="px-3 py-6 text-slate-500" colSpan={headers.length || 1}>No data</td>
-                        </tr>
-                    )}
+            {data?.tabs?.map((t) => {
+                const selectedIdx = buildSelectedIndices(t.headersOut);
+                const headersShown = projectToSelected(t.headersOut, selectedIdx);
+                const partIndex = buildPartIndex(t.headersOut); // normalized keys
 
-                    {groups.map((g, gi) => {
-                        const zebra = gi % 2 === 0 ? 'bg-white' : 'bg-slate-100';
-                        const rangeShort = fmtRangeShort(g.start, g.end);
+                const renderWeeklyCell = (
+                    colPos: number,
+                    displayed: number[],
+                    original: number[],
+                    status: Status
+                ) => {
+                    const origIdx = selectedIdx[colPos];
+                    const baseRaw = baseName(stripPrefix(t.headersOut[origIdx]));
+                    const total = displayed[colPos] ?? 0;
 
+                    // always strong so weekly cells use filled/status styling consistently
+                    const cls = badgeClass(status, /*strong=*/ true);
+
+                    if (!showAll) {
                         return (
-                            <Fragment key={g.key}>
-                                {/* Weekly summary row (top) */}
-                                <tr className={`${zebra} border-b align-middle`}>
-                                    {headers.map((_, ci) => {
-                                        if (ci === 0) {
-                                            return (
-                                                <td key={ci} className="px-3 py-2 font-semibold text-slate-800">
-                                                    <div className="flex items-center gap-3">
-                                                        <button
-                                                            onClick={() => toggleWeek(g.key)}
-                                                            className="px-2 py-1 rounded-md border hover:bg-slate-50 text-xs"
-                                                            aria-expanded={!!expanded[g.key]}
-                                                            aria-controls={`week-${g.key}`}
-                                                        >
-                                                            {expanded[g.key] ? '▾' : '▸'}
-                                                        </button>
-                                                        <span
-                                                            className="inline-flex px-2 py-0.5 rounded-md bg-slate-700 text-white text-xs">
-            {`KW ${g.week}`}
-          </span>
-                                                        <span className="text-slate-600 text-xs">{rangeShort}</span>
-                                                    </div>
-                                                </td>
-                                            );
-                                        }
+                            <span className={cls}>
+                {Number.isInteger(total) ? total : total.toFixed(2)}
+            </span>
+                        );
+                    }
 
-                                        const sum = g.sums[ci];
-                                        if (ci === 1) {
-                                            const valB = Number.isFinite(sum) ? (Number.isInteger(sum) ? sum : sum.toFixed(2)) : 0;
-                                            return (
-                                                <td key={ci} className="px-3 py-2 font-bold">
-        <span className="inline-flex px-2 py-0.5 rounded bg-amber-200 text-amber-900 text-xs font-bold">
-          {valB}
+                    const parts = resolvePartsRobust(baseRaw, partIndex, t.headersOut);
+                    const hasJ = typeof parts.J === 'number';
+                    const hasA = typeof parts.A === 'number';
+
+                    if (!(hasJ || hasA)) {
+                        return (
+                            <span className={cls}>
+                {Number.isInteger(total) ? total : total.toFixed(2)}
+            </span>
+                        );
+                    }
+
+                    const jVal = hasJ ? (original[parts.J!] ?? 0) : 0;
+                    const aVal = hasA ? (original[parts.A!] ?? 0) : 0;
+
+                    return (
+                        <span className={cls}>
+            {(Number.isInteger(total) ? total : total.toFixed(2))} - {(Number.isInteger(jVal) ? jVal : jVal.toFixed(2))} | {(Number.isInteger(aVal) ? aVal : aVal.toFixed(2))}
         </span>
-                                                </td>
-                                            );
-                                        }
+                    );
+                };
 
-                                        const val = Number.isFinite(sum) ? (Number.isInteger(sum) ? sum : sum.toFixed(2)) : 0;
-                                        return (
-                                            <td key={ci} className="px-3 py-2 text-slate-700 font-bold text-xs">
-                                                {val}
-                                            </td>
-                                        );
-                                    })}
+                const renderDailyCell = (colPos: number, displayed: number[], original: number[]) => {
+                    const origIdx = selectedIdx[colPos];
+                    const baseRaw = baseName(stripPrefix(t.headersOut[origIdx]));
+                    const total = displayed[colPos] ?? 0;
+
+                    if (!showAll) {
+                        return <span className="text-slate-700 text-xs font-medium">
+              {Number.isInteger(total) ? total : total.toFixed(2)}
+            </span>;
+                    }
+
+                    const parts = resolvePartsRobust(baseRaw, partIndex, t.headersOut);
+                    const hasJ = typeof parts.J === 'number';
+                    const hasA = typeof parts.A === 'number';
+
+                    if (!(hasJ || hasA)) {
+                        return <span className="text-slate-700 text-xs font-medium">
+              {Number.isInteger(total) ? total : total.toFixed(2)}
+            </span>;
+                    }
+
+                    const jVal = hasJ ? (original[parts.J!] ?? 0) : 0;
+                    const aVal = hasA ? (original[parts.A!] ?? 0) : 0;
+
+                    return <span className="text-slate-700 text-xs font-medium">
+            {(Number.isInteger(total) ? total : total.toFixed(2))} - {(Number.isInteger(jVal) ? jVal : jVal.toFixed(2))} | {(Number.isInteger(aVal) ? aVal : aVal.toFixed(2))}
+          </span>;
+                };
+
+                return (
+                    <div key={t.tab} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <div className="text-sm font-semibold">{t.tab}</div>
+                            <div className="text-xs text-slate-500">{t.range || '—'}</div>
+                        </div>
+
+                        <div className="overflow-x-auto rounded-lg border w-full">
+                            <table className="min-w-full w-full text-sm">
+                                <thead className="bg-slate-100">
+                                <tr>
+                                    <th className="px-3 py-2 text-left font-medium text-slate-700 border-b w-1/3">Woche</th>
+                                    {headersShown.map((h, i) => (
+                                        <th key={`${i}-${h}`} className="px-3 py-2 text-center font-medium text-slate-700 border-b">
+                                            {stripPrefix(h)}
+                                        </th>
+                                    ))}
                                 </tr>
-
-                                {/* Daily rows (collapsible) */}
-                                {expanded[g.key] && g.rows.map((r, ri) => (
-                                    <tr key={`${g.key}-r-${ri}`} id={ri === 0 ? `week-${g.key}` : undefined}
-                                        className={`${zebra} border-b`}>
-                                        {headers.map((_, ci) => {
-                                            let cell = r[ci] ?? '';
-                                            if (ci === 0) {
-                                                const d = parseDateMMDDYYYY(r[0] ?? '');
-                                                if (d) cell = labelMondayMMDDYYYY(d);
-                                            }
-                                            return (
-                                                <td key={ci}
-                                                    className={`px-3 py-2 whitespace-nowrap ${ci === 0 ? 'border-l-4 border-l-slate-300' : ''}`}>
-                                                    {cell}
-                                                </td>
-                                            );
-                                        })}
-                                    </tr>
-                                ))}
-
-                                {/* Optional weekly totals row inside expanded group */}
-                                {expanded[g.key] && (
-                                    <tr className={`${zebra} border-b`}>
-                                        {headers.map((_, ci) => (
-                                            <td key={ci}
-                                                className={`px-3 py-2 font-semibold ${ci === 0 ? 'text-slate-700' : 'text-slate-700'}`}>
-                                                {ci === 0 ? 'Wochensumme'
-                                                    : (Number.isFinite(g.sums[ci]) ? (Number.isInteger(g.sums[ci]) ? g.sums[ci] : g.sums[ci].toFixed(2)) : 0)}
-                                            </td>
-                                        ))}
+                                </thead>
+                                <tbody>
+                                {t.weeks.length === 0 && (
+                                    <tr>
+                                        <td className="px-3 py-6 text-slate-500" colSpan={(headersShown.length || 0) + 1}>No data</td>
                                     </tr>
                                 )}
-                            </Fragment>
-                        );
-                    })}
-                    </tbody>
-                </table>
-            </div>
+                                {t.weeks.map((w, idx) => {
+                                    const zebra = idx % 2 === 0 ? 'bg-white' : 'bg-slate-100';
+                                    const k = `${t.tab}:${w.key}`;
+                                    const isOpen = !!expanded[k];
+                                    const rangeShort = toDeRange(w.start, w.end);
+
+                                    const weekNumsDisplayed = projectToSelected(w.sums, selectedIdx);
+                                    const weekStatusesDisplayed = projectStatuses(w.statuses, selectedIdx);
+
+                                    const rows: JSX.Element[] = [];
+
+                                    // summary row
+                                    rows.push(
+                                        <tr key={`${k}-summary`} className={`${zebra} border-b align-middle`}>
+                                            <td className="px-3 py-2 font-semibold text-slate-800">
+                                                <div className="flex items-center gap-3">
+                                                    <button
+                                                        onClick={() => setExpanded(s => ({ ...s, [k]: !s[k] }))}
+                                                        className="px-2 py-1 rounded-md border hover:bg-slate-50 text-xs"
+                                                        aria-expanded={isOpen}
+                                                        aria-controls={`week-${k}`}
+                                                    >
+                                                        {isOpen ? '▾' : '▸'}
+                                                    </button>
+                                                    <span className="inline-flex px-2 py-0.5 rounded-md bg-slate-700 text-white text-xs">
+                              {`KW ${w.week}`}
+                            </span>
+                                                    <span className="text-slate-600 text-xs">{rangeShort}</span>
+                                                </div>
+                                            </td>
+                                            {headersShown.map((_, i) => (
+                                                <td key={`${k}-sum-${i}`} className="px-3 py-2 text-center">
+                                                    {renderWeeklyCell(i, weekNumsDisplayed, w.sums, weekStatusesDisplayed[i] ?? null)}
+                                                </td>
+                                            ))}
+                                        </tr>
+                                    );
+
+                                    // expanded: daily rows (neutral colors)
+                                    if (isOpen && w.days?.length > 0) {
+                                        w.days.forEach((d, di) => {
+                                            const dayNumsDisplayed = projectToSelected(d.sums, selectedIdx);
+                                            rows.push(
+                                                <tr key={`${k}-day-${di}`} className={`${zebra} border-b`}>
+                                                    <td className="px-3 py-2 whitespace-nowrap text-slate-700">
+                                                        {new Date(d.date).toLocaleDateString('de-AT', {
+                                                            weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric'
+                                                        })}
+                                                    </td>
+                                                    {headersShown.map((_, i) => (
+                                                        <td key={`${k}-daycell-${di}-${i}`} className="px-3 py-2 text-center">
+                                                            {renderDailyCell(i, dayNumsDisplayed, d.sums)}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            );
+                                        });
+                                    }
+
+                                    return rows; // tbody children: only <tr>
+                                })}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                );
+            })}
         </div>
     );
 }
