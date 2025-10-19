@@ -6,7 +6,8 @@ export async function GET() {
     try {
         const payload = await buildOutreachPayload();
         return Response.json(payload, { headers: { 'Cache-Control': 'no-store' } });
-    } catch (e: any) {
-        return new Response(e?.message ?? 'Failed', { status: 500 });
+    } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        return new Response(msg || 'Failed', { status: 500 });
     }
 }

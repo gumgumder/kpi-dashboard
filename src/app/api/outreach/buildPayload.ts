@@ -241,11 +241,6 @@ async function fetchFromSheets(): Promise<ApiAgg> {
         weeks: [], // extend if Termine needs numbers later
     };
 
-    const payload: ApiAgg = {
-        tabs: [mergedTab, termineTab],
-        generatedAt: new Date().toISOString(),
-    };
-
     return {
         tabs: [mergedTab, termineTab],
         generatedAt: new Date().toISOString(),
