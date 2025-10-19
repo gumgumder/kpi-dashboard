@@ -2,7 +2,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
 import { buildOutreachPayload, TabAgg } from '@/app/api/outreach/buildPayload';
-import { summarizePeriodTotals } from '@/lib/metrics/summarize';
+import { summarizePeriodTotals } from '@/lib/summarize';
 
 type Body = { start: string; end: string; fields: string[]; tab?: string; force?: boolean };
 
