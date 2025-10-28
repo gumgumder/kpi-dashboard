@@ -9,6 +9,10 @@ type ChartPoint = { name: string; beyondAI: number; MedicMedia: number; UpWork: 
 const fmtEUR = (n: number) =>
     new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 
+const monthNamesShort = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const currentMonthIdx = new Date().getMonth(); // 0-based
+const avgRangeLabel = `Jan-${monthNamesShort[currentMonthIdx]}`;
+
 function toNumEU(raw: unknown): number {
   if (typeof raw === 'number') return raw;
   const s = String(raw ?? '').trim();
@@ -84,13 +88,15 @@ export default function RevenueTab() {
 
   useEffect(() => { void load(); }, []);
 
-  const { chartData, cashChartData, totalSigned, totalCash, monthlyRows } = useMemo(() => {
+  const { chartData, cashChartData, totalSigned, totalCash, averageSigned, averageCollected, monthlyRows } = useMemo(() => {
     if (!values.length) {
       return {
         chartData: [] as ChartPoint[],
         cashChartData: [] as ChartPoint[],
         totalSigned: 0,
         totalCash: 0,
+        averageSigned: 0,
+        averageCollected: 0,
         monthlyRows: [] as {
           monthLabel: string;
           totalRev: number; cashCollected: number;
@@ -142,11 +148,10 @@ export default function RevenueTab() {
       c_bai: number; c_mm: number; c_up: number;
     };
 
-    // ...inside useMemo, before the for-loop results:
     const chart: ChartPoint[] = [];
-    const cashChart: ChartPoint[] = [];          // NEW
+    const cashChart: ChartPoint[] = [];
     const monthlyRows: Row7[] = [];
-    let totalSigned = 0, totalCash = 0;
+    let totalSigned = 0, totalCash = 0, averageSigned = 0, averageCollected = 0;
 
     for (let m0 = 0; m0 < 12; m0++) {
       const k = `${year}-${String(m0 + 1).padStart(2, '0')}`;
@@ -187,7 +192,11 @@ export default function RevenueTab() {
       totalCash += cash;
     }
 
-    return { chartData: chart, cashChartData: cashChart, totalSigned, totalCash, monthlyRows }; // UPDATED
+    const monthsSoFar = Math.max(1, new Date().getMonth() + 1);
+    averageSigned = totalSigned / monthsSoFar;
+    averageCollected = totalCash / monthsSoFar;
+
+    return { chartData: chart, cashChartData: cashChart, totalSigned, totalCash, averageSigned, averageCollected, monthlyRows };
   }, [values]);
 
   return (
@@ -216,14 +225,22 @@ export default function RevenueTab() {
         </div>
 
         {/* Summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="text-xs text-slate-500">Total Signed (12 months)</div>
+            <div className="text-xs text-slate-500">Total Signed (2025)</div>
             <div className="text-2xl font-semibold mt-1">{fmtEUR(totalSigned)}</div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="text-xs text-slate-500">Total Cash collected (12 months)</div>
+            <div className="text-xs text-slate-500">Average Signed p.M. {avgRangeLabel}</div>
+            <div className="text-2xl font-semibold mt-1">{fmtEUR(averageSigned)}</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="text-xs text-slate-500">Total Cash collected (2025)</div>
             <div className="text-2xl font-semibold mt-1">{fmtEUR(totalCash)}</div>
+          </div>
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="text-xs text-slate-500">Average Cash collected p.M. {avgRangeLabel}</div>
+            <div className="text-2xl font-semibold mt-1">{fmtEUR(averageCollected)}</div>
           </div>
         </div>
 
