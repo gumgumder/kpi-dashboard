@@ -217,6 +217,22 @@ export default function OutreachTab() {
                 </div>
             </div>
 
+            <div className="mt-3">
+                <div className="p-3 bg-white rounded shadow-sm">
+                    <div className="text-xs text-slate-500 mb-2">Weekly goals Dezember</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1 text-sm">
+                        {Object.entries(WEEKLY_GOALS).map(([label, val]) => (
+                            <div key={label} className="flex items-center gap-2">
+                                <span className="text-slate-700 truncate">{label}</span>
+                                <span className="font-medium text-slate-900 mr-4">{val}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+
+
             {(data?.tabs?.length ?? 0) === 0 && (
                 <div className="overflow-x-auto rounded-lg border w-full">
                     <div className="px-3 py-6 text-slate-500 text-sm">No data</div>
