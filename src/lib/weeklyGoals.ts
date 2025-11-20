@@ -8,7 +8,8 @@ export const WEEKLY_GOALS: WeeklyGoals = {
 
     // Outreach
     LI_Erstnachricht: 70,
-    FollowUp: 70,
+    LI_FollowUp: 70,
+    //Calls: 20,
     UW_Proposals: 25,
 };
 
