@@ -27,8 +27,8 @@ function statusFromPct(pct: number): Status {
     if (!Number.isFinite(pct)) return null;
     if (pct < 0.30) return 'red';
     if (pct < 0.60) return 'orange';
-    if (pct < 0.80) return 'yellow';
-    if (pct <= 1.00) return 'green';
+    if (pct < 1.00) return 'yellow';
+    if (pct == 1.00) return 'green';
     return 'over'; // >100%
 }
 
