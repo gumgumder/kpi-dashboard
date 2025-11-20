@@ -1,6 +1,7 @@
 // src/lib/outreach/buildPayload.ts
 import 'server-only';
 import { sheetsClient } from '@/lib/google/sheets';
+import { WEEKLY_GOALS } from '@/lib/weeklyGoals';
 
 // ---- (optionally) export shared types used by UI/POST route ----
 export type DayRow = { date: string; sums: number[] };
@@ -19,19 +20,6 @@ const TAB_COLUMN_MAP: Record<string, number[]> = {
     Termine:  [0],
 };
 
-// Weekly goals for **base totals** (not J_/A_ parts). Keys must match the visible base label.
-const WEEKLY_GOALS: Record<string, number> = {
-    // Content
-    'Connections': 200,
-    'Posts': 5,
-    'Comments': 25,
-
-    // Outreach (examples—uncomment/adjust if you want colors there too)
-    'LI_Erstnachricht': 70,
-    'FollowUp': 70,
-    // 'Calls': 20,
-    'UW_Proposals': 25,
-};
 
 type Status = 'red' | 'orange' | 'yellow' | 'green' | 'over' | null;
 

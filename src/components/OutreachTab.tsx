@@ -1,6 +1,7 @@
 // app/(dashboard)/kpi/outreach/page.tsx
 'use client';
 import { useEffect, useState, useCallback, JSX } from 'react';
+import { WEEKLY_GOALS } from '@/lib/weeklyGoals';
 
 type Status = 'red' | 'orange' | 'yellow' | 'green' | 'over' | null;
 
