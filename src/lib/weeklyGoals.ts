@@ -11,7 +11,7 @@ export interface GoalSet {
 // TODO: adjust concrete values & ranges to your real history
 export const GOAL_SETS: GoalSet[] = [
     {
-        fromWeek: 202530,
+        fromWeek: 202530, //end of year 2025
         toWeek: 202552,
         goals: {
             Connections: 200,
@@ -23,7 +23,7 @@ export const GOAL_SETS: GoalSet[] = [
         },
     },
     {
-        fromWeek: 202601, // new regime
+        fromWeek: 202601, // new year new goals
         goals: {
             Connections: 300,
             Posts: 10,
