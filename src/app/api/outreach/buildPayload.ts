@@ -1,7 +1,7 @@
 // src/lib/outreach/buildPayload.ts
 import 'server-only';
 import { sheetsClient } from '@/lib/google/sheets';
-import { WEEKLY_GOALS } from '@/lib/weeklyGoals';
+import { getGoalsForWeek, isGoalKey } from '@/lib/weeklyGoals';
 
 // ---- (optionally) export shared types used by UI/POST route ----
 export type DayRow = { date: string; sums: number[] };
@@ -62,8 +62,8 @@ function goalKeyFromHeader(header: string): string | null {
     // if it has explicit part suffixes (shouldn't for totals), also ignore
     if (/(?:[_\s]J|[_\s]A|\(J\)|\(A\))$/i.test(name)) return null;
 
-    // exact key match against WEEKLY_GOALS
-    return Object.prototype.hasOwnProperty.call(WEEKLY_GOALS, name) ? name : null;
+    // only color columns that exist in some goal set
+    return isGoalKey(name) ? name : null;
 }
 
 type CacheEntry = { data: ApiAgg; ts: number };
@@ -185,30 +185,47 @@ async function fetchFromSheets(): Promise<ApiAgg> {
 
     // finalize weeks with rounding + statuses
     // src/app/api/outreach/route.ts (updated fragment)
+    const currentWeek = isoWeekYear(new Date());
+
     const mergedWeeks: WeekAgg[] = Array.from(mergedWeeksMap.values())
         .sort((a,b)=> a.year-b.year || a.week-b.week)
         .map(w => {
-            const sumsRounded = w.sums.map(x => Number.isInteger(x) ? x : Math.round(x*100)/100);
-            const currentWeek = isoWeekYear(new Date());
-            const isFutureWeek = (w.year > currentWeek.year) || (w.year === currentWeek.year && w.week > currentWeek.week);
-            // statuses aligned to headersOut: only weeks strictly after the current week are null
+            const sumsRounded = w.sums.map(x =>
+                Number.isInteger(x) ? x : Math.round(x * 100) / 100,
+            );
+
+            const isFutureWeek =
+                w.year > currentWeek.year ||
+                (w.year === currentWeek.year && w.week > currentWeek.week);
+
+            // derive your WeekId (same scheme as weeklyGoals.ts)
+            const weekId = (w.year * 100) + w.week;
+            const goalsForWeek = getGoalsForWeek(weekId);
+
             const statuses = mergedHeadersOut.map((hdr, i) => {
                 const key = goalKeyFromHeader(hdr);
                 if (!key) return null;
-                const goal = WEEKLY_GOALS[key];
-                if (!goal) return null;
                 if (isFutureWeek) return null;
+
+                const goal = goalsForWeek[key];
+                if (!goal) return null;
+
                 const val = sumsRounded[i] ?? 0;
                 return statusFromPct(val / goal);
             });
+
             return {
                 key: `${w.year}-W${String(w.week).padStart(2,'0')}`,
-                week: w.week, year: w.year,
-                start: ymd(w.start), end: ymd(w.end),
+                week: w.week,
+                year: w.year,
+                start: ymd(w.start),
+                end: ymd(w.end),
                 sums: sumsRounded,
                 days: w.days.map(d => ({
                     date: d.date,
-                    sums: d.sums.map(x => Number.isInteger(x) ? x : Math.round(x*100)/100),
+                    sums: d.sums.map(x =>
+                        Number.isInteger(x) ? x : Math.round(x * 100) / 100,
+                    ),
                 })),
                 statuses,
             };

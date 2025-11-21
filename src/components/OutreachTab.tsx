@@ -1,7 +1,7 @@
 // app/(dashboard)/kpi/outreach/page.tsx
 'use client';
 import { useEffect, useState, useCallback, JSX } from 'react';
-import { WEEKLY_GOALS } from '@/lib/weeklyGoals';
+import { getGoalsForWeek } from '@/lib/weeklyGoals';
 
 type Status = 'red' | 'orange' | 'yellow' | 'green' | 'over' | null;
 
@@ -24,6 +24,18 @@ function stripPrefix(h: string) {
     const i = h.indexOf(':');
     return i >= 0 ? h.slice(i + 1).trim() : h.trim();
 }
+
+function getCurrentWeekId(): number {
+    const now = new Date();
+    const d = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+    d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    const week = Math.ceil((((+d - +yearStart) / 86400000) + 1) / 7);
+    return d.getUTCFullYear() * 100 + week; // same scheme as backend
+}
+
+const CURRENT_WEEK_ID = getCurrentWeekId();
+
 function detectPart(name: string): Part {
     const n = name.trim();
     if (/^J(?:[_\s-]|$)/i.test(n)) return 'J';
@@ -155,7 +167,9 @@ export default function OutreachTab() {
     const [data, setData] = useState<ApiAgg | null>(null);
     const [loading, setLoading] = useState(false);
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-    const [showAll, setShowAll] = useState(false); // extended view = show "Total - J | A" where parts exist
+    const [showAll, setShowAll] = useState(false);
+
+    const currentGoals = getGoalsForWeek(CURRENT_WEEK_ID);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -219,18 +233,24 @@ export default function OutreachTab() {
 
             <div className="mt-3">
                 <div className="p-3 bg-white rounded shadow-sm">
-                    <div className="text-xs text-slate-500 mb-2">Weekly goals Dezember</div>
+                    <div className="text-xs text-slate-500 mb-2">
+                        Weekly goals (current week)
+                    </div>
                     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1 text-sm">
-                        {Object.entries(WEEKLY_GOALS).map(([label, val]) => (
+                        {Object.entries(currentGoals).map(([label, val]) => (
                             <div key={label} className="flex items-center gap-2">
                                 <span className="text-slate-700 truncate">{label}</span>
                                 <span className="font-medium text-slate-900 mr-4">{val}</span>
                             </div>
                         ))}
+                        {Object.keys(currentGoals).length === 0 && (
+                            <div className="text-xs text-slate-500">
+                                No goals defined for this week.
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
-
 
 
             {(data?.tabs?.length ?? 0) === 0 && (
