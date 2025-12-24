@@ -23,12 +23,15 @@ export default function PlanTab() {
                     fields: ['Outreach:LI_Erstnachricht', 'Outreach:UW_Proposals'],
                     tab: 'Merged',
                 };
-                const res = await fetch('/api/outreach/summary', {
+                const startYear = new Date(body.start).getFullYear();
+
+                const res = await fetch(`/api/outreach/summary?year=${startYear}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     cache: 'no-store',
                     body: JSON.stringify(body),
                 });
+
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
                 const data = await res.json();
                 setSummary(data.summary ?? {});
