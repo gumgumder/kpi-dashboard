@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, JSX } from 'react';
 import { getGoalsForWeek } from '@/lib/weeklyGoals';
 
 type Status = 'red' | 'orange' | 'yellow' | 'green' | 'over' | null;
+type Year = '2025' | '2026';
 
 type WeekAgg = {
     key: string; week: number; year: number; start: string; end: string;
@@ -168,13 +169,14 @@ export default function OutreachTab() {
     const [loading, setLoading] = useState(false);
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
     const [showAll, setShowAll] = useState(false);
+    const [year, setYear] = useState<Year>('2025');
 
     const currentGoals = getGoalsForWeek(CURRENT_WEEK_ID);
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await fetch('/api/outreach', { cache: 'no-store' });
+            const res = await fetch(`/api/outreach?year=${year}`, { cache: 'no-store' });
             if (!res.ok) throw new Error(await res.text());
             const json: ApiAgg = await res.json();
             setData(json);
@@ -199,7 +201,7 @@ export default function OutreachTab() {
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [year]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -219,11 +221,22 @@ export default function OutreachTab() {
                         aria-pressed={showAll}
                         title={showAll ? 'Show compact values' : 'Show Total - J | A'}
                     >
-                        {showAll ? 'Compact values' : 'Expand info'}
+                        {showAll ? 'Compact values' : 'Expand details'}
                     </button>
+                    {/* Year dropdown */}
+                    <select
+                        value={year}
+                        onChange={(e) => setYear(e.target.value as Year)}
+                        className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50"
+                    >
+                        <option value="2025">2025</option>
+                        <option value="2026">2026</option>
+                    </select>
+
                     <a
-                        href="/api/sheet-link?doc=outreach"
-                        target="_blank" rel="noopener noreferrer"
+                        href={`/api/sheet-link?doc=outreach&year=${year}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="text-sm px-3 py-1.5 rounded-md border bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                     >
                         Edit in Google Sheets

@@ -20,6 +20,17 @@ const TAB_COLUMN_MAP: Record<string, number[]> = {
     Termine:  [0],
 };
 
+type BuildOpts = { year: number; force?: boolean };
+
+function spreadsheetIdForYear(year: string) {
+    const id =
+        year === '2025' ? process.env.GOOGLE_SHEETS_KPI_NUMBERS_2025_ID :
+            year === '2026' ? process.env.GOOGLE_SHEETS_KPI_NUMBERS_2026_ID :
+                undefined;
+
+    if (!id) throw new Error(`Missing spreadsheet id for year ${year}`);
+    return id;
+}
 
 type Status = 'red' | 'orange' | 'yellow' | 'green' | 'over' | null;
 
@@ -66,41 +77,43 @@ function goalKeyFromHeader(header: string): string | null {
     return isGoalKey(name) ? name : null;
 }
 
-type CacheEntry = { data: ApiAgg; ts: number };
-let cache: CacheEntry | null = null;
-let inflight: Promise<ApiAgg> | null = null;
-
 const FRESH_TTL_MS = 60_000;      // serve fresh for 60s
 const STALE_TTL_MS = 10 * 60_000; // allow stale up to 10 min if Google errors
 
-export async function buildOutreachPayload(force = false): Promise<ApiAgg> {
+type CacheEntry = { data: ApiAgg; ts: number };
+const cacheByYear = new Map<string, CacheEntry>();
+const inflightByYear = new Map<string, Promise<ApiAgg>>();
+
+export async function buildOutreachPayload(year: string, force = false): Promise<ApiAgg> {
     const now = Date.now();
+    const cache = cacheByYear.get(year);
 
-    // serve fresh cache
-    if (!force && cache && now - cache.ts < FRESH_TTL_MS) return cache.data;
+    const cached = cacheByYear.get(year);
+    if (!force && cached && now - cached.ts < FRESH_TTL_MS) return cached.data;
 
-    // coalesce concurrent callers
+    const inflight = inflightByYear.get(year);
     if (inflight) return inflight;
 
-    inflight = (async () => {
+    const p = (async () => {
         try {
-            const payload = await fetchFromSheets(); // ⤵ your existing logic
-            cache = { data: payload, ts: Date.now() };
+            const payload = await fetchFromSheets(year);
+            cacheByYear.set(year, { data: payload, ts: Date.now() });
             return payload;
         } catch (err) {
-            // On quota/429/403, serve stale if available
-            if (cache && now - cache.ts < STALE_TTL_MS) return cache.data;
+            const stale = cacheByYear.get(year);
+            if (stale && now - stale.ts < STALE_TTL_MS) return stale.data;
             throw err;
         } finally {
-            inflight = null;
+            inflightByYear.delete(year);
         }
     })();
 
-    return inflight;
+    inflightByYear.set(year, p);
+    return p;
 }
 
-async function fetchFromSheets(): Promise<ApiAgg> {
-    const spreadsheetId = process.env.GOOGLE_SHEETS_OUTREACH_SPREADSHEET_ID!;
+async function fetchFromSheets(year: string): Promise<ApiAgg> {
+    const spreadsheetId = spreadsheetIdForYear(year);
     const tabs = ['Content','Outreach','Termine'];
     const ranges = tabs.map(t => `${t}!A1:K`);
     const sheets = sheetsClient();
