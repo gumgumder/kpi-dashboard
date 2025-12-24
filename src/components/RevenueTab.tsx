@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import {useCallback, useEffect, useMemo, useState} from 'react';
 import { ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, Legend } from 'recharts';
 
 type ValuesResponse = { range: string; values: (string | number)[][] };
 type ChartPoint = { name: string; beyondAI: number; MedicMedia: number; UpWork: number };
+type Year = '2025' | '2026';
 
 const fmtEUR = (n: number) =>
     new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
@@ -68,12 +69,13 @@ export default function RevenueTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [extended, setExtended] = useState(false);
+  const [year, setYear] = useState<Year>('2025');
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/google-sheets');
+      const res = await fetch(`/api/google-sheets?year=${year}`, { cache: 'no-store' });
       if (!res.ok) throw new Error(await res.text());
       const json: ValuesResponse = await res.json();
       setValues(json.values ?? []);
@@ -84,7 +86,9 @@ export default function RevenueTab() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [year]);
+
+  useEffect(() => { void load(); }, [load]);
 
   useEffect(() => { void load(); }, []);
 
@@ -213,8 +217,17 @@ export default function RevenueTab() {
             <button onClick={load} className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50" disabled={loading}>
               {loading ? 'Refreshing…' : 'Refresh'}
             </button>
+            {/* Year dropdown */}
+            <select
+                value={year}
+                onChange={(e) => setYear(e.target.value as Year)}
+                className="text-sm px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50"
+            >
+              <option value="2025">2025</option>
+              <option value="2026">2026</option>
+            </select>
             <a
-                href="/api/sheet-link?doc=outreach"
+                href={`/api/sheet-link?doc=outreach&year=${year}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-sm px-3 py-1.5 rounded-md border bg-green-50 text-green-700 hover:bg-green-100 ml-2"
@@ -227,7 +240,7 @@ export default function RevenueTab() {
         {/* Summary */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="text-xs text-slate-500">Total Signed (2025)</div>
+            <div className="text-xs text-slate-500">Total Signed ({year})</div>
             <div className="text-2xl font-semibold mt-1">{fmtEUR(totalSigned)}</div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
@@ -235,7 +248,7 @@ export default function RevenueTab() {
             <div className="text-2xl font-semibold mt-1">{fmtEUR(averageSigned)}</div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
-            <div className="text-xs text-slate-500">Total Cash collected (2025)</div>
+            <div className="text-xs text-slate-500">Total Cash collected ({year})</div>
             <div className="text-2xl font-semibold mt-1">{fmtEUR(totalCash)}</div>
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
