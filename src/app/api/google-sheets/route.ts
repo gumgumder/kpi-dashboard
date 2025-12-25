@@ -12,8 +12,8 @@ const SHEETS_BY_YEAR: Record<string, string | undefined> = {
   '2026': process.env.GOOGLE_SHEETS_KPI_NUMBERS_2026_ID,
 };
 
-const FRESH_TTL_MS = 60_000;
-const STALE_TTL_MS = 10 * 60_000;
+const FRESH_TTL_MS = Number(process.env.FRESH_TTL_MS)
+const STALE_TTL_MS = Number(process.env.STALE_TTL_MS);
 
 type CacheEntry = { data: ValuesResponse; ts: number };
 const cacheByYear = new Map<string, CacheEntry>();

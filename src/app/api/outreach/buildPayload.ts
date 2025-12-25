@@ -77,8 +77,8 @@ function goalKeyFromHeader(header: string): string | null {
     return isGoalKey(name) ? name : null;
 }
 
-const FRESH_TTL_MS = 60_000;      // serve fresh for 60s
-const STALE_TTL_MS = 10 * 60_000; // allow stale up to 10 min if Google errors
+const FRESH_TTL_MS = Number(process.env.FRESH_TTL_MS)
+const STALE_TTL_MS = Number(process.env.STALE_TTL_MS);
 
 type CacheEntry = { data: ApiAgg; ts: number };
 const cacheByYear = new Map<string, CacheEntry>();

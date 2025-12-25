@@ -90,9 +90,12 @@ export default function RevenueTab() {
 
   useEffect(() => { void load(); }, [load]);
 
-  useEffect(() => { void load(); }, []);
-
   const { chartData, cashChartData, totalSigned, totalCash, averageSigned, averageCollected, monthlyRows } = useMemo(() => {
+    const MONTHS = ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+    const selectedYear = Number(year);
+    const currentYear = new Date().getFullYear();
+    const buckets = new Map<string, Bucket>();
+
     if (!values.length) {
       return {
         chartData: [] as ChartPoint[],
@@ -119,12 +122,12 @@ export default function RevenueTab() {
       cashByBiz: { beyondAI: number; MedicMedia: number; UpWork: number; Other: number };
     };
 
-    const keyFor = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const buckets = new Map<string, Bucket>();
-
     for (const r of rest) {
-      const d = tryParseDate(r[COL.date]); if (!d) continue;
-      const k = keyFor(new Date(d.getFullYear(), d.getMonth(), 1));
+      const d = tryParseDate(r[COL.date]);
+      if (!d) continue;
+      if (d.getFullYear() !== selectedYear) continue; // <-- IMPORTANT
+
+      const k = `${selectedYear}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
       const signed = toNumEU(r[COL.signed1]) + toNumEU(r[COL.signed2]);
       const cash   = toNumEU(r[COL.cash1])   + toNumEU(r[COL.cash2]);
@@ -142,9 +145,6 @@ export default function RevenueTab() {
       buckets.set(k, b);
     }
 
-    const year = new Date().getFullYear();
-    const MONTHS = ['Jänner','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
-
     type Row7 = {
       monthLabel: string;
       totalRev: number; cashCollected: number;
@@ -158,14 +158,14 @@ export default function RevenueTab() {
     let totalSigned = 0, totalCash = 0, averageSigned = 0, averageCollected = 0;
 
     for (let m0 = 0; m0 < 12; m0++) {
-      const k = `${year}-${String(m0 + 1).padStart(2, '0')}`;
+      const k = `${selectedYear}-${String(m0 + 1).padStart(2, '0')}`;
       const b = buckets.get(k);
 
       const rev  = b?.revTotal  ?? 0;
       const cash = b?.cashTotal ?? 0;
 
       monthlyRows.push({
-        monthLabel: `${MONTHS[m0]} ${year}`,
+        monthLabel: `${MONTHS[m0]} ${selectedYear}`,
         totalRev: rev,
         cashCollected: cash,
         r_bai: b?.revByBiz.beyondAI ?? 0,
@@ -196,7 +196,7 @@ export default function RevenueTab() {
       totalCash += cash;
     }
 
-    const monthsSoFar = Math.max(1, new Date().getMonth() + 1);
+    const monthsSoFar = selectedYear === currentYear ? Math.max(1, new Date().getMonth() + 1) : 12;
     averageSigned = totalSigned / monthsSoFar;
     averageCollected = totalCash / monthsSoFar;
 
