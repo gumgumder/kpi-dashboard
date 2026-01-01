@@ -169,7 +169,7 @@ export default function OutreachTab() {
     const [loading, setLoading] = useState(false);
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
     const [showAll, setShowAll] = useState(false);
-    const [year, setYear] = useState<Year>('2025');
+    const [year, setYear] = useState<Year>('2026');
 
     const currentGoals = getGoalsForWeek(CURRENT_WEEK_ID);
 

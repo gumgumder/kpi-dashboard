@@ -69,7 +69,7 @@ export default function RevenueTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [extended, setExtended] = useState(false);
-  const [year, setYear] = useState<Year>('2025');
+  const [year, setYear] = useState<Year>('2026');
 
   const load = useCallback(async () => {
     setLoading(true);
