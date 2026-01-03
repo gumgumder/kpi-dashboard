@@ -25,12 +25,12 @@ export const GOAL_SETS: GoalSet[] = [
     {
         fromWeek: 202601, // new year new goals
         goals: {
-            Connections: 300,
-            Posts: 10,
-            Comments: 40,
-            LI_Erstnachricht: 100,
-            LI_FollowUp: 100,
-            UW_Proposals: 30,
+            Connections: 0,
+            Posts: 7,
+            Comments: 35,
+            LI_Erstnachricht: 105,
+            LI_FollowUp: 105,
+            UW_Proposals: 15,
         },
     },
 ];
