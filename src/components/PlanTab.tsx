@@ -6,7 +6,7 @@ import React, { useEffect, useState } from 'react';
 type Summary = Record<string, number>;
 
 export default function PlanTab() {
-    const goals = { linkedin_dm_goal: 1800, upwork_goal: 250 };
+    const goals = { primary_action_goal: 24000, pieces_of_content_goal: 500 };
 
     const [summary, setSummary] = useState<Summary | null>(null);
     const [loading, setLoading] = useState(true);
@@ -17,19 +17,25 @@ export default function PlanTab() {
             try {
                 setLoading(true);
                 setErr(null);
-                const body = {
-                    start: '2025-10-20',
-                    end:   '2025-12-31',
-                    fields: ['Outreach:LI_Erstnachricht', 'Outreach:UW_Proposals'],
+                const body_outreach = {
+                    start: '2026-01-01',
+                    end:   '2026-12-31',
+                    fields: ['Outreach:LI_Erstnachricht', 'Outreach:LI_FollowUp'],
                     tab: 'Merged',
                 };
-                const startYear = new Date(body.start).getFullYear();
+                const body_content = {
+                    start: '2026-01-01',
+                    end:   '2026-12-31',
+                    fields: ['Content:Comments', 'Content:Posts'],
+                    tab: 'Merged',
+                };
+                const startYear = new Date(body_outreach.start).getFullYear();
 
                 const res = await fetch(`/api/outreach/summary?year=${startYear}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     cache: 'no-store',
-                    body: JSON.stringify(body),
+                    body: JSON.stringify(body_outreach),
                 });
 
                 if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -49,8 +55,8 @@ export default function PlanTab() {
     const uw = Number(summary?.['Outreach:UW_Proposals'] ?? 0);
 
     const progress = {
-        linkedin_dm: Math.min(100, Math.round((li / goals.linkedin_dm_goal) * 100)),
-        upwork:      Math.min(100, Math.round((uw / goals.upwork_goal) * 100)),
+        primary_action: Math.min(100, Math.round((li / goals.primary_action_goal) * 100)),
+        pieces_of_content:      Math.min(100, Math.round((uw / goals.pieces_of_content_goal) * 100)),
     };
 
     const ProgressRow = ({ label, value, total, goal }: { label: string; value: number; total?: number; goal?: number }) => (
@@ -78,36 +84,27 @@ export default function PlanTab() {
                 {/* Left sections */}
                 <main className="col-span-1 md:col-span-2 space-y-8">
                     <section className="text-left">
-                        <h2 className="text-2xl font-bold mb-3">Commitments — Jakob</h2>
+                        <h2 className="text-2xl font-bold mb-3">Business Goals</h2>
                         <ul className="list-disc list-inside space-y-2 text-base">
-                            <li>J: Ro100 – 5x pro Woche (200 Nachrichten, 10 Kommentare/Tag, Rest Calls)</li>
-                        </ul>
-                    </section>
-
-                    <section className="text-left">
-                        <h2 className="text-2xl font-bold mb-3">Commitments — Annika</h2>
-                        <ul className="list-disc list-inside space-y-2 text-base">
-                            <li>A: 7x Posts pro Woche</li>
-                            <li>A: 200 Seiten pro Woche lesen</li>
-                            <li>A: Glaubenssätze wiederholen</li>
-                        </ul>
-                    </section>
-
-                    <section className="w-full max-w-none text-left">
-                        <h2 className="text-2xl font-bold mb-3">General Commitments</h2>
-                        <ul className="list-disc list-inside space-y-2 text-base">
-                            <li>Complain dashboard / Emotional state dashboard</li>
-                            <li>Daily danceparty (1 song)</li>
-                            <li>Daily “I am the voice”</li>
-                            <li>Codeword: STATE – watch your state</li>
-                            <li>2 date schedule (am 1. des Monats)</li>
-                            <li>1 day Mind Movie</li>
-                            <li>1 day Rebranding</li>
-                            <li>1 day Offer</li>
-                            <li>Peer group (End of month)</li>
-                            <li>Frustration = Innovation = 3 ideas</li>
-                            <li>Questions: What extraordinary at?</li>
-                            <li>Questions: Where do we wanna go?</li>
+                            <li>500k Revenue</li>
+                            <li>One Core offer (wie bei den Websites) mit sinnvollem Pricing (Core Offer: 5-stellig; Entry Offer: Mittel 4-stellig)</li>
+                                <ul className="list-disc list-inside ml-6 mt-2 space-y-1 text-sm">
+                                    <li>1st half year → Portfolio + Testimonials aufbauen</li>
+                                    <li>2nd half year → Downnichen & Core Offers etablieren</li>
+                                </ul>
+                            <li>1 funktionierender Akquiseweg (aka wenn wir x tun passiert y)</li>
+                            <li>Jeden Tag 1 Piece of Content gepostet</li>
+                                <ul className="list-disc list-inside ml-6 mt-2 space-y-1 text-sm">
+                                    <li>Total 500 Pieces of Content incl. 25 YT Videos</li>
+                                </ul>
+                            <li>24.000 Primary Actions (Message, Calls, Upwork Proposals, Comments (fremder Post), Cold Email, Brief,..)</li>
+                                <ul className="list-disc list-inside ml-6 mt-2 space-y-1 text-sm">
+                                    <li>Davon 12.000 unique new Outreaches</li>
+                                </ul>
+                            <li>Invest in 1:1 Coaching</li>
+                                <ul className="list-disc list-inside ml-6 mt-2 space-y-1 text-sm">
+                                    <li>1. Session pP bis Mitte Februar</li>
+                                </ul>
                         </ul>
                     </section>
                 </main>
@@ -123,17 +120,17 @@ export default function PlanTab() {
                         {!loading && !err && (
                             <>
                                 <ProgressRow
-                                    label="LinkedIn DMs sent"
-                                    value={progress.linkedin_dm}
+                                    label="Primary actions"
+                                    value={progress.primary_action}
                                     total={li}
-                                    goal={goals.linkedin_dm_goal}
+                                    goal={goals.primary_action_goal}
                                 />
                                 <div className="mt-4 pt-4 border-t border-slate-100">
                                     <ProgressRow
-                                        label="UpWork Proposals sent"
-                                        value={progress.upwork}
+                                        label="Pieces of content"
+                                        value={progress.pieces_of_content}
                                         total={uw}
-                                        goal={goals.upwork_goal}
+                                        goal={goals.pieces_of_content_goal}
                                     />
                                 </div>
 
