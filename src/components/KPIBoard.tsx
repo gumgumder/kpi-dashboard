@@ -6,7 +6,6 @@ import OutreachTab from '@/components/OutreachTab';
 import RevenueTab from '@/components/RevenueTab';
 import PlanTab from "@/components/PlanTab";
 import SubscriptionTab from "@/components/SubscriptionTab";
-import {Subscript} from "lucide-react";
 
 export default function KPIBoard() {
     return (
