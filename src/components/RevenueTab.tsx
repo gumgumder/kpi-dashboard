@@ -6,6 +6,12 @@ import { ResponsiveContainer, BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Ba
 type ValuesResponse = { range: string; values: (string | number)[][] };
 type ChartPoint = { name: string; beyondAI: number; MedicMedia: number; UpWork: number };
 type Year = '2025' | '2026';
+type SummaryComparison = {
+  totalSigned: number;
+  averageSigned: number;
+  totalCash: number;
+  averageCollected: number;
+};
 
 const fmtEUR = (n: number) =>
     new Intl.NumberFormat('de-AT', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
@@ -63,9 +69,56 @@ const normalizeBiz = (raw: unknown): 'beyondAI' | 'MedicMedia' | 'UpWork' | 'Oth
   return 'Other';
 };
 
+function buildSummary(values: (string | number)[][], year: string, monthCount: number): SummaryComparison | null {
+  if (!values.length) return null;
+
+  const selectedYear = Number(year);
+  if (!Number.isFinite(selectedYear)) return null;
+  const comparisonMonths = Math.max(1, Math.min(12, monthCount));
+
+  let totalSigned = 0;
+  let totalCash = 0;
+  let hasRowsForYear = false;
+
+  for (const r of values.slice(1)) {
+    const d = tryParseDate(r[COL.date]);
+    if (!d) continue;
+    if (d.getFullYear() !== selectedYear) continue;
+    if (d.getMonth() >= comparisonMonths) continue;
+
+    hasRowsForYear = true;
+    totalSigned += toNumEU(r[COL.signed1]) + toNumEU(r[COL.signed2]);
+    totalCash += toNumEU(r[COL.cash1]) + toNumEU(r[COL.cash2]);
+  }
+
+  if (!hasRowsForYear) return null;
+
+  return {
+    totalSigned,
+    averageSigned: totalSigned / Math.max(1, comparisonMonths),
+    totalCash,
+    averageCollected: totalCash / Math.max(1, comparisonMonths),
+  };
+}
+
+function renderDelta(current: number, previous: number, label: string) {
+  const delta = current - previous;
+  if (!Number.isFinite(delta)) return null;
+  if (delta === 0) {
+    return <div className="mt-2 text-xs text-slate-500">Same as {label}</div>;
+  }
+
+  return (
+      <div className={`mt-2 text-xs font-medium ${delta > 0 ? 'text-green-600' : 'text-red-600'}`}>
+        {fmtEUR(Math.abs(delta))} {delta > 0 ? 'more' : 'less'} than {label}
+      </div>
+  );
+}
+
 export default function RevenueTab() {
   const [values, setValues] = useState<(string | number)[][]>([]);
   const [range, setRange] = useState('');
+  const [previousYearValues, setPreviousYearValues] = useState<(string | number)[][]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [extended, setExtended] = useState(false);
@@ -75,14 +128,29 @@ export default function RevenueTab() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/google-sheets?year=${year}`, { cache: 'no-store' });
-      if (!res.ok) throw new Error(await res.text());
-      const json: ValuesResponse = await res.json();
+      const previousYear = String(Number(year) - 1);
+
+      const [currentRes, previousRes] = await Promise.all([
+        fetch(`/api/google-sheets?year=${year}`, { cache: 'no-store' }),
+        fetch(`/api/google-sheets?year=${previousYear}`, { cache: 'no-store' }).catch(() => null),
+      ]);
+
+      if (!currentRes.ok) throw new Error(await currentRes.text());
+
+      const json: ValuesResponse = await currentRes.json();
       setValues(json.values ?? []);
       setRange(json.range ?? '');
+
+      if (previousRes?.ok) {
+        const previousJson: ValuesResponse = await previousRes.json();
+        setPreviousYearValues(previousJson.values ?? []);
+      } else {
+        setPreviousYearValues([]);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg || 'Failed to load Revenue data');
+      setPreviousYearValues([]);
     } finally {
       setLoading(false);
     }
@@ -203,6 +271,15 @@ export default function RevenueTab() {
     return { chartData: chart, cashChartData: cashChart, totalSigned, totalCash, averageSigned, averageCollected, monthlyRows };
   }, [values]);
 
+  const selectedYearNum = Number(year);
+  const monthsToCompare = selectedYearNum === new Date().getFullYear() ? currentMonthIdx + 1 : 12;
+  const priorYear = String(selectedYearNum - 1);
+  const comparisonLabel = `${monthNamesShort[0]}-${monthNamesShort[monthsToCompare - 1]} ${priorYear}`;
+  const previousSummary = useMemo(
+      () => buildSummary(previousYearValues, priorYear, monthsToCompare),
+      [previousYearValues, priorYear, monthsToCompare]
+  );
+
   return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
@@ -242,18 +319,22 @@ export default function RevenueTab() {
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-xs text-slate-500">Total Signed ({year})</div>
             <div className="text-2xl font-semibold mt-1">{fmtEUR(totalSigned)}</div>
+            {previousSummary ? renderDelta(totalSigned, previousSummary.totalSigned, comparisonLabel) : null}
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-xs text-slate-500">Average Signed p.M. {avgRangeLabel}</div>
             <div className="text-2xl font-semibold mt-1">{fmtEUR(averageSigned)}</div>
+            {previousSummary ? renderDelta(averageSigned, previousSummary.averageSigned, comparisonLabel) : null}
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-xs text-slate-500">Total Cash collected ({year})</div>
             <div className="text-2xl font-semibold mt-1">{fmtEUR(totalCash)}</div>
+            {previousSummary ? renderDelta(totalCash, previousSummary.totalCash, comparisonLabel) : null}
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-4">
             <div className="text-xs text-slate-500">Average Cash collected p.M. {avgRangeLabel}</div>
             <div className="text-2xl font-semibold mt-1">{fmtEUR(averageCollected)}</div>
+            {previousSummary ? renderDelta(averageCollected, previousSummary.averageCollected, comparisonLabel) : null}
           </div>
         </div>
 
