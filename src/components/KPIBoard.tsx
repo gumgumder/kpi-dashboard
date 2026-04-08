@@ -5,6 +5,8 @@ import ShortVideosTab from '@/components/ShortVideosTab';
 import OutreachTab from '@/components/OutreachTab';
 import RevenueTab from '@/components/RevenueTab';
 import PlanTab from "@/components/PlanTab";
+import SubscriptionTab from "@/components/SubscriptionTab";
+import {Subscript} from "lucide-react";
 
 export default function KPIBoard() {
     return (
@@ -15,6 +17,7 @@ export default function KPIBoard() {
                     <TabsTrigger value="revenue">Revenue</TabsTrigger>
                     <TabsTrigger value="videos">Short Videos</TabsTrigger>
                     <TabsTrigger value="plan">Plan</TabsTrigger>
+                    <TabsTrigger value="subscriptions">Subscriptions</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="outreach" className="data-[state=inactive]:hidden">
@@ -31,6 +34,10 @@ export default function KPIBoard() {
 
                 <TabsContent value="plan" className="data-[state=inactive]:hidden">
                     <PlanTab />
+                </TabsContent>
+
+                <TabsContent value="subscriptions" className="data-[state=inactive]:hidden">
+                    <SubscriptionTab />
                 </TabsContent>
             </Tabs>
         </div>
